@@ -1,0 +1,39 @@
+## SECTION A – RMC PARAMETERS
+Parameter,Extracted Value
+Lead Number,P26060840
+Project Name,FLOWMORE
+Customer Name,TATA POWER
+Application,Lube Oil System (LOS)
+Industry,Power Generation
+Flow Rate,50 LPM
+Operating Pressure,10 Bar
+Operating Temperature,45 Deg C
+Oil Grade,ISO VG 46
+Filtration Level,10 Microns
+Heat Exchanger MOC,Copper
+Reservoir MOC,SS304
+Control Panel Requirement,PLC Based with HMI
+
+## SECTION B – SPARES LISTS
+Spare Type,Item No,Description,Qty,Part No / Frequency
+Mandatory Spare,1,Rotor Assembly,2,ROT-101
+Mandatory Spare,2,Mechanical Seal,4,MS-202
+Mandatory Spare,3,Bearings,8,BRG-303
+O&M Spare,1,Governor,1,2 Years
+O&M Spare,2,Rotor,1,5 Years
+O&M Spare,3,Thrust Bearing,2,3 Years
+O&M Spare,4,Filter Elements,12,6 Months
+
+## SECTION C – BILL OF MATERIALS (BOM)
+Level,Item No,Tag,Equipment / Component Name,Qty,Material / MOC,Unit Price,Source PDF
+Equipment,1,,Screw Pump,2 Nos,"Cast Iron Casing, Alloy Steel R","INR 75,000",bom_sheet.pdf
+Equipment,2,,Electric Motor,2 Nos,Cast Iron Frame,"INR 35,000",bom_sheet.pdf
+Equipment,3,,Shell & Tube Heat Exchanger,1 No,"Shell: CS, Tubes: Copper","INR 1,20,000",bom_sheet.pdf
+  └─ Component,3.1,,      Shell,,CS,,
+  └─ Component,3.2,,      Tubes,,Copper,,
+Equipment,4,,Lube Oil Reservoir,1 No,Stainless Steel SS304,"INR 2,50,000",bom_sheet.pdf
+Equipment,5,,Duplex Oil Filter,1 Set,Carbon Steel housing,"INR 80,000",bom_sheet.pdf
+
+## SECTION D – VALIDATION WARNINGS
+#,Warning
+–,All engineering checks passed. No warnings.

@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart RMC AI – Engineering Document Intelligence</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="glow-container">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+
+    <header class="app-header">
+        <div class="header-logo">
+            <i class="fa-solid fa-microchip-ai logo-icon"></i>
+            <div>
+                <h1>Smart RMC AI</h1>
+                <p>Industrial Tender Document Intelligence Pipeline</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <div id="connection-status" class="status-indicator">
+                <span class="pulse"></span> Connected
+            </div>
+        </div>
+    </header>
+
+    <main class="app-layout">
+        <!-- Sidebar - Ingestion Controls -->
+        <section class="sidebar-panel card">
+            <h2 class="panel-title"><i class="fa-solid fa-cloud-arrow-up"></i> Ingestion Control</h2>
+            <p class="panel-subtitle">Upload RFQs, LOS specs, BOMs, and Spares PDFs (500 - 1000+ pages supported)</p>
+            
+            <div id="drop-zone" class="drop-zone">
+                <i class="fa-solid fa-file-pdf file-icon"></i>
+                <p>Drag & drop tender PDFs here</p>
+                <span>or click to browse files</span>
+                <input type="file" id="file-input" multiple accept=".pdf" style="display: none;">
+            </div>
+
+            <div id="file-list" class="file-list">
+                <!-- Selected files appear here -->
+            </div>
+
+            <button id="process-btn" class="btn btn-primary" disabled>
+                <i class="fa-solid fa-gears"></i> Process Tender Package
+            </button>
+            
+            <div class="divider"></div>
+
+            <!-- ASME Alerts Settings Collapsible -->
+            <div class="settings-collapsible card-mini" style="margin-bottom: 15px;">
+                <div class="settings-header" id="settings-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px 0;">
+                    <h3 style="font-size: 0.95rem; margin: 0;"><i class="fa-solid fa-sliders text-primary"></i> ASME Alerts Settings</h3>
+                    <i class="fa-solid fa-chevron-down toggle-icon" id="settings-icon" style="font-size: 0.8rem; transition: transform 0.3s;"></i>
+                </div>
+                <div class="settings-body hidden" id="settings-body" style="display: flex; flex-direction: column; gap: 10px; padding-top: 10px;">
+                    <div class="setting-row" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label style="font-size: 0.8rem; color: var(--text-secondary);">Flow Rate bounds (LPM)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="settings-flow-min" value="5" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Min">
+                            <input type="number" id="settings-flow-max" value="2000" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Max">
+                        </div>
+                    </div>
+                    <div class="setting-row" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label style="font-size: 0.8rem; color: var(--text-secondary);">Pressure bounds (Bar)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="settings-press-min" value="1" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Min">
+                            <input type="number" id="settings-press-max" value="50" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Max">
+                        </div>
+                    </div>
+                    <div class="setting-row" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label style="font-size: 0.8rem; color: var(--text-secondary);">Temperature bounds (°C)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="settings-temp-min" value="10" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Min">
+                            <input type="number" id="settings-temp-max" value="100" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Max">
+                        </div>
+                    </div>
+                    <div class="setting-row" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label style="font-size: 0.8rem; color: var(--text-secondary);">Filtration bounds (µm)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="settings-filt-min" value="1" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Min">
+                            <input type="number" id="settings-filt-max" value="100" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem;" placeholder="Max">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            
+            <h3 class="status-section-title">Pipeline Progress</h3>
+            <div class="stepper">
+                <div class="step" id="step-upload">
+                    <span class="step-num"><i class="fa-solid fa-check"></i></span>
+                    <span class="step-label">Upload Documents</span>
+                </div>
+                <div class="step" id="step-ocr">
+                    <span class="step-num"><i class="fa-solid fa-eye"></i></span>
+                    <span class="step-label">OCR & Text Ingestion</span>
+                </div>
+                <div class="step" id="step-classify">
+                    <span class="step-num"><i class="fa-solid fa-folder-open"></i></span>
+                    <span class="step-label">Classification</span>
+                </div>
+                <div class="step" id="step-extract">
+                    <span class="step-num"><i class="fa-solid fa-cube"></i></span>
+                    <span class="step-label">AI RMC Extraction</span>
+                </div>
+                <div class="step" id="step-generate">
+                    <span class="step-num"><i class="fa-solid fa-file-excel"></i></span>
+                    <span class="step-label">Generate Outputs</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Dashboard Content -->
+        <section class="content-panel">
+            <!-- Download Hub (Hidden initially) -->
+            <div id="download-hub" class="download-hub card hidden">
+                <div class="download-info">
+                    <h3><i class="fa-solid fa-circle-check text-success"></i> Processing Successful!</h3>
+                    <p>Structured documents generated and validated.</p>
+                </div>
+                <div class="download-buttons">
+                    <a href="/download/xlsx" class="btn btn-success"><i class="fa-solid fa-file-excel"></i> Export Excel</a>
+                    <a href="/download/csv" class="btn btn-primary" style="background-color: #319795; border-color: #319795;"><i class="fa-solid fa-file-csv"></i> Export CSV</a>
+                    <a href="/download/txt" class="btn btn-secondary"><i class="fa-solid fa-file-lines"></i> Export TXT</a>
+                    <a href="/download/json" class="btn btn-outline"><i class="fa-solid fa-code"></i> Export JSON</a>
+                </div>
+            </div>
+
+            <!-- Tab Container -->
+            <div class="tab-container card">
+                <div class="tab-header">
+                    <button class="tab-btn active" data-tab="rmc-data"><i class="fa-solid fa-list-check"></i> RMC Parameters</button>
+                    <button class="tab-btn" data-tab="spares"><i class="fa-solid fa-screwdriver-wrench"></i> Spares Lists</button>
+                    <button class="tab-btn" data-tab="doc-chat"><i class="fa-solid fa-comments"></i> RAG Document Chat</button>
+                    <button class="tab-btn" data-tab="doc-manifest"><i class="fa-solid fa-file-invoice"></i> Package Manifest</button>
+                    <button class="tab-btn" data-tab="bom-extractor"><i class="fa-solid fa-file-csv"></i> BOM CSV Extractor</button>
+                </div>
+
+                <div class="tab-content">
+                    <!-- RMC Parameters Tab -->
+                    <div class="tab-pane active" id="rmc-data">
+                        <div class="validation-summary hidden" id="validation-summary">
+                            <div class="conf-badge">
+                                <span class="badge-label">Confidence</span>
+                                <span class="badge-val" id="conf-val">0%</span>
+                            </div>
+                            <div class="validation-details">
+                                <h4><i class="fa-solid fa-triangle-exclamation"></i> Validation Alerts</h4>
+                                <ul id="warning-list">
+                                    <li>No warnings.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="rmc-workspace">
+                            <!-- Left: Grid Parameter List -->
+                            <div class="grid-layout">
+                                <div style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; margin-bottom: -10px;">
+                                    <h2 style="font-size: 1.15rem; display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-sliders text-primary"></i> Master RFQ Parameters</h2>
+                                    <button id="revalidate-btn" class="btn btn-success hidden" style="padding: 8px 16px; font-size: 0.85rem; background: linear-gradient(135deg, var(--success), #0d9488);"><i class="fa-solid fa-rotate"></i> Save & Re-validate</button>
+                                </div>
+                                <div class="param-group">
+                                    <h3>Project Metadata</h3>
+                                    <div class="param-row clickable" onclick="selectParam('lead_no', 'Lead Number')">
+                                        <span class="param-label">Lead Number</span>
+                                        <span class="param-val" id="val-lead_no">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('project_name', 'Project Name')">
+                                        <span class="param-label">Project Name</span>
+                                        <span class="param-val" id="val-project_name">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('customer', 'Customer Name')">
+                                        <span class="param-label">Customer Name</span>
+                                        <span class="param-val" id="val-customer">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('application', 'Application')">
+                                        <span class="param-label">Application</span>
+                                        <span class="param-val" id="val-application">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('industry', 'Industry')">
+                                        <span class="param-label">Industry</span>
+                                        <span class="param-val" id="val-industry">-</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="param-group">
+                                    <h3>Operating Conditions</h3>
+                                    <div class="param-row clickable" onclick="selectParam('flow_rate', 'Flow Rate')">
+                                        <span class="param-label">Flow Rate</span>
+                                        <span class="param-val" id="val-flow_rate">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('pressure', 'Operating Pressure')">
+                                        <span class="param-label">Operating Pressure</span>
+                                        <span class="param-val" id="val-pressure">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('temperature', 'Operating Temp')">
+                                        <span class="param-label">Operating Temp</span>
+                                        <span class="param-val" id="val-temperature">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('oil_grade', 'Oil Grade')">
+                                        <span class="param-label">Oil Grade</span>
+                                        <span class="param-val" id="val-oil_grade">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('filtration_level', 'Filtration Level')">
+                                        <span class="param-label">Filtration Level</span>
+                                        <span class="param-val" id="val-filtration_level">-</span>
+                                    </div>
+                                </div>
+
+                                <div class="param-group span-full">
+                                    <h3>Material Specifications & Controls</h3>
+                                    <div class="param-row clickable" onclick="selectParam('heat_exchanger_moc', 'Heat Exchanger MOC')">
+                                        <span class="param-label">Heat Exchanger MOC</span>
+                                        <span class="param-val" id="val-heat_exchanger_moc">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('reservoir_moc', 'Reservoir MOC')">
+                                        <span class="param-label">Reservoir MOC</span>
+                                        <span class="param-val" id="val-reservoir_moc">-</span>
+                                    </div>
+                                    <div class="param-row clickable" onclick="selectParam('control_panel_requirement', 'Control Panel Requirement')">
+                                        <span class="param-label">Control Panel Requirement</span>
+                                        <span class="param-val" id="val-control_panel_requirement">-</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right: Dynamic Auditing Panel -->
+                            <div class="grounding-panel" id="grounding-panel">
+                                <div class="empty-panel-msg" id="grounding-empty-msg">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                    <p>Click on any parameter row to inspect extraction quotes, AI reasoning, and source citations.</p>
+                                </div>
+                                <div class="grounding-details hidden" id="grounding-details-content">
+                                    <h3 id="grounding-title">Parameter Details</h3>
+                                    
+                                    <div class="grounding-value-card">
+                                        <span class="badge-label">Extracted Value</span>
+                                        <div style="display: flex; gap: 8px; margin-top: 5px;">
+                                            <input type="text" id="grounding-value-input" style="flex-grow: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-primary); font-size: 1.1rem; font-weight: 600;">
+                                            <button id="save-param-btn" class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;"><i class="fa-solid fa-floppy-disk"></i> Update</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="detail-section">
+                                        <h4><i class="fa-solid fa-quote-left text-primary"></i> Document Quote Grounding</h4>
+                                        <div class="quote-box">
+                                            <p id="grounding-quote">"-"</p>
+                                            <span id="grounding-status-badge" class="badge">Unverified</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="detail-section">
+                                        <h4><i class="fa-solid fa-brain text-primary"></i> Conflict Resolution Reasoning</h4>
+                                        <p id="grounding-reasoning" class="reasoning-text">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Spares Lists Tab -->
+                    <div class="tab-pane" id="spares">
+                        <div class="spares-wrapper">
+                            <div class="spares-section">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                    <h3 class="spares-title text-danger" style="margin: 0;"><i class="fa-solid fa-shield-halved"></i> Mandatory Spares</h3>
+                                    <button class="btn btn-secondary" onclick="addSpareRow('mandatory')" style="padding: 6px 12px; font-size: 0.8rem;"><i class="fa-solid fa-plus"></i> Add Row</button>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="mandatory-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 80px;">Item</th>
+                                                <th>Description</th>
+                                                <th style="width: 100px;">Qty</th>
+                                                <th>Part Number</th>
+                                                <th style="width: 50px; text-align: center;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="5" class="empty-table-msg">Upload documents to extract mandatory spares</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="spares-section">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                    <h3 class="spares-title text-warning" style="margin: 0;"><i class="fa-solid fa-wrench"></i> Operational & Maintenance (O&M) Spares</h3>
+                                    <button class="btn btn-secondary" onclick="addSpareRow('om')" style="padding: 6px 12px; font-size: 0.8rem;"><i class="fa-solid fa-plus"></i> Add Row</button>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="om-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 80px;">Item</th>
+                                                <th>Description</th>
+                                                <th style="width: 100px;">Qty</th>
+                                                <th>Frequency</th>
+                                                <th style="width: 50px; text-align: center;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td colspan="5" class="empty-table-msg">Upload documents to extract O&M spares</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RAG Chat Tab -->
+                    <div class="tab-pane" id="doc-chat">
+                        <div class="chat-container">
+                            <div class="chat-history" id="chat-history">
+                                <div class="chat-message assistant">
+                                    <div class="message-content">
+                                        Hello! I have loaded and indexed your tender package in FAISS. You can ask me custom questions about the specifications, and I will search the texts using semantic embeddings to provide answers along with page citations.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chat-input-wrapper">
+                                <input type="text" id="chat-input" placeholder="Ask a question (e.g. What is the filter element material or flow rate?)" disabled>
+                                <button id="send-chat-btn" class="btn btn-primary" disabled><i class="fa-solid fa-paper-plane"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Manifest Tab -->
+                    <div class="tab-pane" id="doc-manifest">
+                        <h3>Ingested Tender Package Components</h3>
+                        <p>Detailed list of files ingested, classified, and indexed into the vector store database.</p>
+                        <div class="table-responsive">
+                            <table class="data-table" id="manifest-table">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Classification</th>
+                                        <th>Page Count</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="4" class="empty-table-msg">No files uploaded yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- BOM CSV Extractor Tab -->
+                    <div class="tab-pane" id="bom-extractor">
+                        <div class="bom-workspace">
+                            <div class="bom-control-panel card">
+                                <h3>Hierarchical BOM Extractor</h3>
+                                <p class="panel-subtitle" style="margin-bottom: 12px;">Upload a single BOM PDF to extract its component tree and download as CSV directly.</p>
+                                
+                                <div id="bom-drop-zone" class="drop-zone">
+                                    <i class="fa-solid fa-file-invoice file-icon" style="color: #63b3ed; font-size: 2.5rem; margin-bottom: 10px;"></i>
+                                    <p>Drag & drop BOM PDF here</p>
+                                    <span>or click to browse</span>
+                                    <input type="file" id="bom-file-input" accept=".pdf" style="display: none;">
+                                </div>
+                                
+                                <div id="bom-file-info" class="bom-file-info hidden">
+                                    <div class="file-details">
+                                        <i class="fa-solid fa-file-pdf text-danger"></i>
+                                        <span id="bom-filename">Filename.pdf</span>
+                                        <span id="bom-filesize">(0 KB)</span>
+                                    </div>
+                                    <button id="bom-clear-btn" class="btn btn-icon" style="color: var(--danger);"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+
+                                <button id="bom-process-btn" class="btn btn-primary" style="background: linear-gradient(135deg, #3182ce, #319795);" disabled>
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Extract & Download CSV
+                                </button>
+                                
+                                <div id="bom-loader" class="loader-container hidden">
+                                    <div class="spinner"></div>
+                                    <p>Running hierarchical extraction... splits combined tags, cleans wrapping, and builds BOM tree.</p>
+                                </div>
+                            </div>
+
+                            <div class="bom-preview-panel card" id="bom-preview-panel">
+                                <div class="empty-panel-msg" id="bom-preview-empty">
+                                    <i class="fa-solid fa-table-list" style="font-size: 3rem; margin-bottom: 15px; color: var(--text-muted);"></i>
+                                    <p>Upload and extract a BOM PDF to preview the structured tree layout and download the CSV.</p>
+                                </div>
+                                <div class="bom-preview-content hidden" id="bom-preview-data">
+                                    <div class="preview-header">
+                                        <h3>BOM Extraction Preview</h3>
+                                        <button id="bom-download-btn" class="btn btn-success"><i class="fa-solid fa-download"></i> Download CSV</button>
+                                    </div>
+                                    <div class="table-wrapper">
+                                        <table class="data-table" id="bom-table-preview" style="width: 100%; border-collapse: collapse;">
+                                            <thead>
+                                                <tr>
+                                                    <th>Level</th>
+                                                    <th>Item No</th>
+                                                    <th>Equipment/Component Name</th>
+                                                    <th>Qty</th>
+                                                    <th>Material / MOC</th>
+                                                    <th>Unit Price</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Preview rows -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Overlay Loader -->
+    <div id="overlay-loader" class="overlay hidden">
+        <div class="loader-card">
+            <div class="spinner"></div>
+            <h3 id="loader-title">Processing Tender...</h3>
+            <p id="loader-desc">Uploading documents to FastAPI server...</p>
+        </div>
+    </div>
+
+    <!-- Frontend Script -->
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const processBtn = document.getElementById('process-btn');
+        const overlayLoader = document.getElementById('overlay-loader');
+        const loaderTitle = document.getElementById('loader-title');
+        const loaderDesc = document.getElementById('loader-desc');
+        const downloadHub = document.getElementById('download-hub');
+        const chatInput = document.getElementById('chat-input');
+        const sendChatBtn = document.getElementById('send-chat-btn');
+        const chatHistory = document.getElementById('chat-history');
+
+        let selectedFiles = [];
+        let currentRmc = {};
+        let currentGrounding = {};
+
+        // Tab Switching Logic
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabPanes = document.querySelectorAll('.tab-pane');
+
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabButtons.forEach(b => b.classList.remove('active'));
+                tabPanes.forEach(p => p.classList.remove('active'));
+
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Trigger file input
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        // File Selection Handlers
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+
+        function handleFileSelect() {
+            selectedFiles = Array.from(fileInput.files);
+            fileList.innerHTML = '';
+            
+            if (selectedFiles.length > 0) {
+                selectedFiles.forEach((file, idx) => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-item';
+                    fileItem.innerHTML = `
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">(${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        <i class="fa-solid fa-xmark remove-btn" onclick="removeFile(${idx})"></i>
+                    `;
+                    fileList.appendChild(fileItem);
+                });
+                processBtn.disabled = false;
+            } else {
+                processBtn.disabled = true;
+            }
+        }
+
+        window.removeFile = function(index) {
+            selectedFiles.splice(index, 1);
+            
+            // Re-bind to input
+            const dt = new DataTransfer();
+            selectedFiles.forEach(file => dt.items.add(file));
+            fileInput.files = dt.files;
+            
+            handleFileSelect();
+        };
+
+        // Pipeline Process Button Handler
+        processBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) return;
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            // ASME alert settings bounds
+            formData.append('flow_min', document.getElementById('settings-flow-min').value);
+            formData.append('flow_max', document.getElementById('settings-flow-max').value);
+            formData.append('press_min', document.getElementById('settings-press-min').value);
+            formData.append('press_max', document.getElementById('settings-press-max').value);
+            formData.append('temp_min', document.getElementById('settings-temp-min').value);
+            formData.append('temp_max', document.getElementById('settings-temp-max').value);
+            formData.append('filt_min', document.getElementById('settings-filt-min').value);
+            formData.append('filt_max', document.getElementById('settings-filt-max').value);
+
+            // Reset UI Stepper classes
+            document.querySelectorAll('.step').forEach(s => s.className = 'step');
+
+            // Show Loader
+            showLoader("Uploading Package...", "Transferring PDF files to the processing server...");
+            setStepStatus('step-upload', 'active');
+
+            try {
+                setStepStatus('step-upload', 'completed');
+                setStepStatus('step-ocr', 'active');
+                updateLoader("Ingesting Documents...", "Extracting raw texts and running OCR fallbacks on scanned segments...");
+
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+
+                setStepStatus('step-ocr', 'completed');
+                setStepStatus('step-classify', 'active');
+                updateLoader("Classifying Tender Components...", "Mapping documents to emails, technical details, BOM sheets, and spares...");
+
+                const data = await response.json();
+
+                setStepStatus('step-classify', 'completed');
+                setStepStatus('step-extract', 'active');
+                updateLoader("Extracting Parameters...", "Triggering Gemini 2.5 Flash semantic mapping and structured validation checks...");
+
+                // Populate UI Data
+                currentRmc = data.rmc_data;
+                currentGrounding = data.grounding;
+
+                populateRMCData(data.rmc_data, data.validation);
+                populateSpares(data.rmc_data.mandatory_spares, data.rmc_data.om_spares);
+                populateManifest(data.documents);
+
+                setStepStatus('step-extract', 'completed');
+                setStepStatus('step-generate', 'active');
+                updateLoader("Compiling Output Files...", "Generating Excel RMC sheet, text reports, and structured JSON schemas...");
+
+                setStepStatus('step-generate', 'completed');
+                downloadHub.classList.remove('hidden');
+
+                // Enable Chat
+                chatInput.disabled = false;
+                sendChatBtn.disabled = false;
+
+                // Clear active grounding panel states
+                document.getElementById('grounding-empty-msg').classList.remove('hidden');
+                document.getElementById('grounding-details-content').classList.add('hidden');
+                document.querySelectorAll('.param-row').forEach(row => row.classList.remove('active'));
+
+                // Auto switch to RMC Data tab
+                document.querySelector('[data-tab="rmc-data"]').click();
+
+            } catch (err) {
+                console.error(err);
+                alert("Processing failed: " + err.message);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        // Set Step Visual Status
+        function setStepStatus(stepId, status) {
+            const step = document.getElementById(stepId);
+            if (step) {
+                step.className = `step ${status}`;
+            }
+        }
+
+        // Loader Helpers
+        function showLoader(title, desc) {
+            loaderTitle.textContent = title;
+            loaderDesc.textContent = desc;
+            overlayLoader.classList.remove('hidden');
+        }
+
+        function updateLoader(title, desc) {
+            loaderTitle.textContent = title;
+            loaderDesc.textContent = desc;
+        }
+
+        function hideLoader() {
+            overlayLoader.classList.add('hidden');
+        }
+
+        // Populate Dashboard Fields
+        function populateRMCData(rmc, val) {
+            // Populate General Fields
+            const fields = [
+                'lead_no', 'project_name', 'customer', 'application', 'industry',
+                'flow_rate', 'pressure', 'temperature', 'oil_grade', 'filtration_level',
+                'heat_exchanger_moc', 'reservoir_moc', 'control_panel_requirement'
+            ];
+
+            fields.forEach(field => {
+                const el = document.getElementById(`val-${field}`);
+                if (el) {
+                    const value = rmc[field] || "XX";
+                    el.textContent = value;
+                    if (value === "XX") {
+                        el.className = "param-val placeholder-alert";
+                    } else {
+                        el.className = "param-val";
+                    }
+                }
+            });
+
+            // Populate Validation Alert Summary
+            const warningList = document.getElementById('warning-list');
+            warningList.innerHTML = '';
+            
+            const summary = document.getElementById('validation-summary');
+            summary.classList.remove('hidden');
+
+            document.getElementById('conf-val').textContent = `${val.confidence_score}%`;
+            
+            if (val.confidence_score > 80) {
+                document.getElementById('conf-val').className = "badge-val text-success";
+            } else if (val.confidence_score > 50) {
+                document.getElementById('conf-val').className = "badge-val text-warning";
+            } else {
+                document.getElementById('conf-val').className = "badge-val text-danger";
+            }
+
+            if (val.warnings && val.warnings.length > 0) {
+                val.warnings.forEach(warn => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${warn}`;
+                    warningList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.innerHTML = `<i class="fa-solid fa-check text-success"></i> All critical engineering fields validated successfully without conflicts.`;
+                warningList.appendChild(li);
+            }
+        }
+
+        let selectedField = null;
+
+        // Selected Parameter for auditing details
+        window.selectParam = function(field, label) {
+            selectedField = field;
+            // Highlight selected row
+            document.querySelectorAll('.param-row').forEach(row => row.classList.remove('active'));
+            const clickedRow = event.currentTarget;
+            clickedRow.classList.add('active');
+
+            const grounding = currentGrounding[field];
+            const value = currentRmc[field] || "XX";
+
+            document.getElementById('grounding-empty-msg').classList.add('hidden');
+            document.getElementById('grounding-details-content').classList.remove('hidden');
+
+            document.getElementById('grounding-title').textContent = `${label} Audit`;
+            document.getElementById('grounding-value-input').value = value === "XX" ? "" : value;
+            document.getElementById('grounding-quote').textContent = `"${grounding ? grounding.quote || 'Not Found' : 'Not Found'}"`;
+            document.getElementById('grounding-reasoning').textContent = grounding ? grounding.reasoning || "No resolution logs available." : "User-modified value.";
+
+            const badge = document.getElementById('grounding-status-badge');
+            if (value === "XX") {
+                badge.className = "badge badge-class";
+                badge.textContent = "N/A";
+            } else if (grounding && grounding.quote_verified) {
+                badge.className = "badge badge-qty";
+                badge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Quote Verified`;
+            } else {
+                badge.className = "badge badge-freq";
+                badge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Quote Unverified`;
+            }
+        };
+
+        // Update single parameter
+        document.getElementById('save-param-btn').addEventListener('click', () => {
+            if (!selectedField) return;
+            const newVal = document.getElementById('grounding-value-input').value.trim() || "XX";
+            currentRmc[selectedField] = newVal;
+            
+            const el = document.getElementById(`val-${selectedField}`);
+            if (el) {
+                el.textContent = newVal;
+                if (newVal === "XX") {
+                    el.className = "param-val placeholder-alert";
+                } else {
+                    el.className = "param-val";
+                }
+            }
+            
+            // Highlight Save & Revalidate
+            const revalBtn = document.getElementById('revalidate-btn');
+            revalBtn.classList.remove('hidden');
+            revalBtn.style.animation = 'blink 1.5s infinite';
+        });
+
+        // Save & Revalidate handler
+        document.getElementById('revalidate-btn').addEventListener('click', async () => {
+            const revalBtn = document.getElementById('revalidate-btn');
+            revalBtn.style.animation = 'none';
+            
+            showLoader("Re-validating Parameters...", "Recalculating manufacturing bounds and updating structural outputs...");
+            
+            try {
+                const response = await fetch('/export-modified/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentRmc)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                
+                const data = await response.json();
+                
+                currentRmc = data.rmc_data;
+                populateRMCData(data.rmc_data, data.validation);
+                populateSpares(data.rmc_data.mandatory_spares, data.rmc_data.om_spares);
+                
+                revalBtn.classList.add('hidden');
+                
+            } catch (err) {
+                console.error(err);
+                alert("Re-validation failed: " + err.message);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        // Update spares in local state
+        window.updateSpareField = function(type, index, field, value) {
+            if (type === 'mandatory') {
+                if (!currentRmc.mandatory_spares[index]) currentRmc.mandatory_spares[index] = {};
+                currentRmc.mandatory_spares[index][field] = value.trim();
+            } else {
+                if (!currentRmc.om_spares[index]) currentRmc.om_spares[index] = {};
+                currentRmc.om_spares[index][field] = value.trim();
+            }
+            const revalBtn = document.getElementById('revalidate-btn');
+            revalBtn.classList.remove('hidden');
+            revalBtn.style.animation = 'blink 1.5s infinite';
+        };
+
+        // Delete spares row
+        window.deleteSpareRow = function(type, index) {
+            if (type === 'mandatory') {
+                currentRmc.mandatory_spares.splice(index, 1);
+            } else {
+                currentRmc.om_spares.splice(index, 1);
+            }
+            populateSpares(currentRmc.mandatory_spares, currentRmc.om_spares);
+            const revalBtn = document.getElementById('revalidate-btn');
+            revalBtn.classList.remove('hidden');
+            revalBtn.style.animation = 'blink 1.5s infinite';
+        };
+
+        // Add spares row
+        window.addSpareRow = function(type) {
+            if (!currentRmc.mandatory_spares) currentRmc.mandatory_spares = [];
+            if (!currentRmc.om_spares) currentRmc.om_spares = [];
+            
+            if (type === 'mandatory') {
+                currentRmc.mandatory_spares.push({ item_no: '', description: 'New Spare Part', qty: '1', part_no: '' });
+            } else {
+                currentRmc.om_spares.push({ item_no: '', description: 'New Spare Part', qty: '1', frequency: '' });
+            }
+            populateSpares(currentRmc.mandatory_spares, currentRmc.om_spares);
+            const revalBtn = document.getElementById('revalidate-btn');
+            revalBtn.classList.remove('hidden');
+            revalBtn.style.animation = 'blink 1.5s infinite';
+        };
+
+        // Populate Spares Tables
+        function populateSpares(mandatory, om) {
+            const mandBody = document.querySelector('#mandatory-table tbody');
+            mandBody.innerHTML = '';
+            if (mandatory && mandatory.length > 0) {
+                mandatory.forEach((item, idx) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td contenteditable="true" onblur="updateSpareField('mandatory', ${idx}, 'item_no', this.textContent)">${item.item_no || ''}</td>
+                        <td class="bold-desc" contenteditable="true" onblur="updateSpareField('mandatory', ${idx}, 'description', this.textContent)">${item.description || ''}</td>
+                        <td contenteditable="true" onblur="updateSpareField('mandatory', ${idx}, 'qty', this.textContent)">${item.qty || ''}</td>
+                        <td contenteditable="true" onblur="updateSpareField('mandatory', ${idx}, 'part_no', this.textContent)">${item.part_no || ''}</td>
+                        <td style="text-align: center;">
+                            <button class="btn btn-icon" onclick="deleteSpareRow('mandatory', ${idx})" style="padding: 4px 8px; color: var(--danger); background: transparent; border: none; cursor: pointer;">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                    mandBody.appendChild(tr);
+                });
+            } else {
+                mandBody.innerHTML = `<tr><td colspan="5" class="empty-table-msg">No mandatory spares found in package.</td></tr>`;
+            }
+
+            const omBody = document.querySelector('#om-table tbody');
+            omBody.innerHTML = '';
+            if (om && om.length > 0) {
+                om.forEach((item, idx) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td contenteditable="true" onblur="updateSpareField('om', ${idx}, 'item_no', this.textContent)">${item.item_no || ''}</td>
+                        <td class="bold-desc" contenteditable="true" onblur="updateSpareField('om', ${idx}, 'description', this.textContent)">${item.description || ''}</td>
+                        <td contenteditable="true" onblur="updateSpareField('om', ${idx}, 'qty', this.textContent)">${item.qty || ''}</td>
+                        <td contenteditable="true" onblur="updateSpareField('om', ${idx}, 'frequency', this.textContent)">${item.frequency || ''}</td>
+                        <td style="text-align: center;">
+                            <button class="btn btn-icon" onclick="deleteSpareRow('om', ${idx})" style="padding: 4px 8px; color: var(--danger); background: transparent; border: none; cursor: pointer;">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                    omBody.appendChild(tr);
+                });
+            } else {
+                omBody.innerHTML = `<tr><td colspan="5" class="empty-table-msg">No operation & maintenance spares found in package.</td></tr>`;
+            }
+        }
+
+        // Populate Package Manifest
+        function populateManifest(docs) {
+            const tbody = document.querySelector('#manifest-table tbody');
+            tbody.innerHTML = '';
+            
+            docs.forEach(doc => {
+                const tr = document.createElement('tr');
+                let classIcon = "fa-file";
+                if (doc.classification === "Email") classIcon = "fa-envelope";
+                else if (doc.classification.includes("Spec")) classIcon = "fa-file-shield";
+                else if (doc.classification === "BOM") classIcon = "fa-table-list";
+                else if (doc.classification.includes("Spares")) classIcon = "fa-screwdriver-wrench";
+                
+                tr.innerHTML = `
+                    <td><i class="fa-solid ${classIcon} text-primary"></i> <b>${doc.filename}</b></td>
+                    <td><span class="badge badge-class">${doc.classification}</span></td>
+                    <td>${doc.page_count} pages</td>
+                    <td><span class="status-indicator"><span class="pulse completed"></span> Indexed</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // RAG Document Chat Logic
+        async function sendChatMessage() {
+            const query = chatInput.value.trim();
+            if (!query) return;
+
+            appendMessage(query, 'user');
+            chatInput.value = '';
+
+            const typingMsg = appendMessage(`<div class="typing-loader"><span></span><span></span><span></span></div>`, 'assistant typing');
+
+            try {
+                const response = await fetch('/query/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+
+                const data = await response.json();
+                typingMsg.remove();
+
+                // Quote Highlighter Helper
+                const highlightQuoteText = (text, qText) => {
+                    if (!qText) return text;
+                    const stopwords = ['what', 'where', 'when', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'with', 'from', 'about', 'above', 'below', 'tender', 'skid', 'parameters', 'rate', 'grade'];
+                    const words = qText.toLowerCase()
+                        .replace(/[^\w\s]/g, '')
+                        .split(/\s+/)
+                        .filter(w => w.length >= 4 && !stopwords.includes(w));
+                    
+                    if (words.length === 0) return text;
+                    
+                    const escapeRegex = (s) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    const pattern = new RegExp(`\\b(${words.map(escapeRegex).join('|')})\\b`, 'gi');
+                    return text.replace(pattern, '<mark style="background: rgba(99, 102, 241, 0.4); color: #fff; padding: 2px 4px; border-radius: 2px;">$1</mark>');
+                };
+
+                let citationHtml = '';
+                if (data.citations && data.citations.length > 0) {
+                    citationHtml = `<div class="message-citations" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <strong style="font-size: 0.8rem; color: var(--text-secondary);"><i class="fa-solid fa-folder-open text-primary"></i> Source Citations (${data.citations.length}):</strong>
+                        ${data.citations.map((c, idx) => {
+                            return `
+                            <div class="citation-accordion" style="border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,0.2); overflow: hidden;">
+                                <div class="citation-header" onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.toggle-icon').classList.toggle('fa-chevron-down'); this.querySelector('.toggle-icon').classList.toggle('fa-chevron-up');" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; background: rgba(255,255,255,0.02); font-size: 0.8rem;">
+                                    <span><i class="fa-solid fa-file-pdf text-danger" style="margin-right: 6px;"></i> ${c.source} (Page ${c.page})</span>
+                                    <i class="fa-solid fa-chevron-down toggle-icon" style="font-size: 0.7rem; color: var(--text-muted);"></i>
+                                </div>
+                                <div class="citation-body hidden" style="padding: 10px 12px; font-size: 0.78rem; line-height: 1.4; color: var(--text-secondary); border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.4); max-height: 200px; overflow-y: auto;">
+                                    ${highlightQuoteText(c.text, query)}
+                                </div>
+                            </div>
+                            `;
+                        }).join('')}
+                    </div>`;
+                }
+
+                appendMessage(`<div>${data.answer.replace(/\n/g, '<br/>')}</div>${citationHtml}`, 'assistant');
+
+            } catch (err) {
+                typingMsg.remove();
+                appendMessage(`Error retrieving response: ${err.message}`, 'assistant error-msg');
+            }
+        }
+
+        function appendMessage(content, role) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `chat-message ${role}`;
+            msgDiv.innerHTML = `<div class="message-content">${content}</div>`;
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return msgDiv;
+        }
+
+        sendChatBtn.addEventListener('click', sendChatMessage);
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendChatMessage();
+        });
+
+        // =====================================================================
+        // BOM CSV Extractor JS Logic
+        // =====================================================================
+        const bomDropZone = document.getElementById('bom-drop-zone');
+        const bomFileInput = document.getElementById('bom-file-input');
+        const bomFileInfo = document.getElementById('bom-file-info');
+        const bomFilename = document.getElementById('bom-filename');
+        const bomFilesize = document.getElementById('bom-filesize');
+        const bomClearBtn = document.getElementById('bom-clear-btn');
+        const bomProcessBtn = document.getElementById('bom-process-btn');
+        const bomLoader = document.getElementById('bom-loader');
+        const bomPreviewEmpty = document.getElementById('bom-preview-empty');
+        const bomPreviewData = document.getElementById('bom-preview-data');
+        const bomDownloadBtn = document.getElementById('bom-download-btn');
+        const bomTablePreviewBody = document.querySelector('#bom-table-preview tbody');
+
+        let selectedBomFile = null;
+        let extractedCsvContent = "";
+
+        bomDropZone.addEventListener('click', () => bomFileInput.click());
+
+        bomFileInput.addEventListener('change', () => {
+            if (bomFileInput.files.length > 0) {
+                selectedBomFile = bomFileInput.files[0];
+                bomFilename.textContent = selectedBomFile.name;
+                bomFilesize.textContent = `(${(selectedBomFile.size / 1024).toFixed(1)} KB)`;
+                bomDropZone.classList.add('hidden');
+                bomFileInfo.classList.remove('hidden');
+                bomProcessBtn.disabled = false;
+            }
+        });
+
+        bomDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            bomDropZone.classList.add('dragover');
+        });
+
+        bomDropZone.addEventListener('dragleave', () => {
+            bomDropZone.classList.remove('dragover');
+        });
+
+        bomDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            bomDropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                bomFileInput.files = e.dataTransfer.files;
+                bomFileInput.dispatchEvent(new Event('change'));
+            }
+        });
+
+        bomClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectedBomFile = null;
+            bomFileInput.value = '';
+            bomDropZone.classList.remove('hidden');
+            bomFileInfo.classList.add('hidden');
+            bomProcessBtn.disabled = true;
+            
+            bomPreviewEmpty.classList.remove('hidden');
+            bomPreviewData.classList.add('hidden');
+            bomTablePreviewBody.innerHTML = '';
+            extractedCsvContent = "";
+        });
+
+        bomProcessBtn.addEventListener('click', async () => {
+            if (!selectedBomFile) return;
+
+            const formData = new FormData();
+            formData.append('file', selectedBomFile);
+
+            bomLoader.classList.remove('hidden');
+            bomProcessBtn.disabled = true;
+            bomClearBtn.disabled = true;
+
+            try {
+                const response = await fetch('/upload-bom-csv/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+
+                const data = await response.json();
+                extractedCsvContent = data.csv;
+                
+                // Parse CSV to preview in table
+                populateBomPreviewTable(data.csv);
+                
+                bomPreviewEmpty.classList.add('hidden');
+                bomPreviewData.classList.remove('hidden');
+
+            } catch (err) {
+                console.error(err);
+                alert("BOM extraction failed: " + err.message);
+            } finally {
+                bomLoader.classList.add('hidden');
+                bomProcessBtn.disabled = false;
+                bomClearBtn.disabled = false;
+            }
+        });
+
+        bomDownloadBtn.addEventListener('click', () => {
+            if (!extractedCsvContent) return;
+            const blob = new Blob([extractedCsvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", selectedBomFile ? selectedBomFile.name.replace(".pdf", "_BOM.csv") : "BOM_extracted.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        function populateBomPreviewTable(csvText) {
+            bomTablePreviewBody.innerHTML = '';
+            
+            const lines = csvText.split('\n');
+            if (lines.length < 2) return;
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const cells = parseCsvLine(line);
+                if (cells.length < 8) continue;
+                
+                const level = cells[0];
+                const itemNo = cells[1];
+                const tag = cells[2];
+                const name = cells[3];
+                const qty = cells[4];
+                const material = cells[5];
+                const price = cells[6];
+                
+                const tr = document.createElement('tr');
+                
+                const levelClass = level.toLowerCase() === 'equipment' ? 'level-equipment' : 'level-component';
+                const nameClass = level.toLowerCase() === 'component' ? 'indent-name' : '';
+                
+                tr.innerHTML = `
+                    <td class="${levelClass}">${level}</td>
+                    <td>${itemNo}</td>
+                    <td class="${nameClass}">${name.trim()}</td>
+                    <td>${qty ? `<span class="badge badge-qty">${qty}</span>` : ''}</td>
+                    <td>${material}</td>
+                    <td>${price}</td>
+                `;
+                bomTablePreviewBody.appendChild(tr);
+            }
+        }
+
+        function parseCsvLine(text) {
+            let p = '', r = [];
+            let q = false;
+            for (let i = 0; i < text.length; i++) {
+                let c = text[i];
+                if (c === '"') {
+                    q = !q;
+                } else if (c === ',' && !q) {
+                    r.push(p);
+                    p = '';
+                } else {
+                    p += c;
+                }
+            }
+            r.push(p);
+            return r;
+        }
+
+        // ASME settings toggle listener
+        document.getElementById('settings-toggle').addEventListener('click', () => {
+            const body = document.getElementById('settings-body');
+            const icon = document.getElementById('settings-icon');
+            body.classList.toggle('hidden');
+            if (body.classList.contains('hidden')) {
+                icon.style.transform = 'rotate(0deg)';
+            } else {
+                icon.style.transform = 'rotate(180deg)';
+            }
+        });
+    </script>
+</body>
+</html>

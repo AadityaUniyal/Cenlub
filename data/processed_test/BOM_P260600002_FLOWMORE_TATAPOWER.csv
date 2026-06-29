@@ -1,0 +1,43 @@
+﻿## CENLUB SYSTEMS — BILL OF MATERIALS (ANNEXURE-I)
+LEAD NO.,P26060840
+RFQ REF,XX
+PROJECT NAME,FLOWMORE
+CUSTOMER,TATA POWER
+DATE RECEIVED,XX
+FLUID,ISO VG 46
+FLOW RATE,50 LPM
+OPERATING PRESSURE,10 Bar
+OPERATING TEMPERATURE,45 Deg C
+FILTRATION LEVEL,10 Microns
+HEAT EXCHANGER MOC,Copper
+RESERVOIR MOC,SS304
+CONTROL PANEL,PLC Based with HMI
+CIRCUIT,LUBE OIL SYSTEM
+PREPARED BY,ASHISH MON
+
+SR.NO,CUST.PART.NO,REV,QTY,UNIT,ITEM (Description),PLAIN DESCRIPTION,TECHNICAL SPECIFICATION,MOC,MAKE,UNIT PRICE,TOTAL PRICE,DELIVERY TIME (WEEKS),OFFER REF,VALIDITY DATE,CATEGORY CODE,CATEGORY LABEL,ASSEMBLY GROUP,INTERNAL ITEM CODE,APPLICABLE,MANDATORY,QTY ZERO FLAG,REMARKS,DATA COMPLETE,SOURCE PDF,LEAD NO,CUSTOMER RFQ REF,PROJECT NAME
+1,,,1,,1,,,,,,,,,,,,GENERAL,L1,Y,N,N,,Y,om_spares.pdf,P260600002,,FLOWMORE
+2,,,1,,2,,,,,,,,,,,,GENERAL,L2,Y,N,N,,Y,om_spares.pdf,P260600002,,FLOWMORE
+3,,,2,,3,,,,,,,,,,,,GENERAL,L3,Y,N,N,,Y,om_spares.pdf,P260600002,,FLOWMORE
+4,,,12,,4,,,,,,,,,,,,GENERAL,L4,Y,N,N,,Y,om_spares.pdf,P260600002,,FLOWMORE
+
+## EQUIPMENT BOM TREE
+Level,Item No,Tag,Equipment / Component Name,Qty,Material / MOC,Unit Price,Source PDF
+Equipment,1,,Screw Pump,2 Nos,"Cast Iron Casing, Alloy Steel R","INR 75,000",bom_sheet.pdf
+Equipment,2,,Electric Motor,2 Nos,Cast Iron Frame,"INR 35,000",bom_sheet.pdf
+Equipment,3,,Shell & Tube Heat Exchanger,1 No,"Shell: CS, Tubes: Copper","INR 1,20,000",bom_sheet.pdf
+  └─ Component,3.1,,      Shell,,CS,,
+  └─ Component,3.2,,      Tubes,,Copper,,
+Equipment,4,,Lube Oil Reservoir,1 No,Stainless Steel SS304,"INR 2,50,000",bom_sheet.pdf
+Equipment,5,,Duplex Oil Filter,1 Set,Carbon Steel housing,"INR 80,000",bom_sheet.pdf
+Equipment,1,,Rotor Assembly,2,ROT-101,,mandatory_spares.pdf
+Equipment,2,,Mechanical Seal,4,MS-202,,mandatory_spares.pdf
+Equipment,3,,Bearings,8,BRG-303,,mandatory_spares.pdf
+Equipment,1,,Governor,1,2 Years,,om_spares.pdf
+Equipment,2,,Rotor,1,5 Years,,om_spares.pdf
+Equipment,3,,Thrust Bearing,2,3 Years,,om_spares.pdf
+Equipment,4,,Filter Elements,12,6 Months,,om_spares.pdf
+
+## VALIDATION WARNINGS
+#,Warning
+–,All checks passed. No warnings.

@@ -1,0 +1,24 @@
+Lead Number : P26060840
+Project Name : FLOWMORE
+Customer Name : TATA POWER
+Application : Lube Oil System (LOS)
+Industry : Power Generation
+Flow Rate : 50 LPM
+Oil Grade : ISO VG 46 Operating Pressure
+Pressure : 10 Bar
+Temperature : 45 Deg C
+Filtration Level : 10 Microns
+Heat Exchanger MOC : Copper Control Panel Requirement
+Reservoir MOC : SS304 Heat Exchanger MOC
+Control Panel Requirement : PLC Based with HMI
+
+Mandatory Spares :
+* Rotor Assembly [Qty: 2] (Part No: ROT-101)
+* Mechanical Seal [Qty: 4] (Part No: MS-202)
+* Bearings [Qty: 8] (Part No: BRG-303)
+
+O&M Spares :
+* Governor [Qty: 1] (Freq: 2 Years)
+* Rotor [Qty: 1] (Freq: 5 Years)
+* Thrust Bearing [Qty: 2] (Freq: 3 Years)
+* Filter Elements [Qty: 12] (Freq: 6 Months)

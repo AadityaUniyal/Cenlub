@@ -1,0 +1,17 @@
+{
+  "lead_no": "P26060840",
+  "project_name": "FLOWMORE",
+  "customer": "TATA POWER",
+  "application": "Lube Oil Skid",
+  "industry": "Power Generation",
+  "flow_rate": "50 LPM",
+  "pressure": "10 Bar",
+  "temperature": "45 Deg C",
+  "oil_grade": "ISO VG 46",
+  "filtration_level": "10 Microns",
+  "heat_exchanger_moc": "Copper",
+  "reservoir_moc": "SS304",
+  "control_panel_requirement": "PLC Based",
+  "mandatory_spares": [],
+  "om_spares": []
+}

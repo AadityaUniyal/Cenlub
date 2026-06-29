@@ -1,0 +1,53 @@
+{
+  "database": {
+    "url_env_var": "DATABASE_URL"
+  },
+  "email": {
+    "inbox": "rfq@cenlub.com",
+    "auth_method": "imap",
+    "credentials_env": {
+      "imap_host": "IMAP_HOST",
+      "imap_user": "IMAP_USER",
+      "imap_pass": "IMAP_PASS",
+      "client_id": "EMAIL_CLIENT_ID",
+      "client_secret": "EMAIL_CLIENT_SECRET",
+      "tenant_id": "EMAIL_TENANT_ID"
+    },
+    "rfq_trigger_keywords": [
+      "INQUIRY", "RFQ", "QUOTATION", "LOS",
+      "SPECIFICATION", "TENDER", "ENQUIRY", "REQUEST FOR QUOTE"
+    ]
+  },
+  "pdf_parsing": {
+    "chunk_size_pages": 50,
+    "ocr_fallback": true,
+    "zone_signals": {
+      "LINE_ITEM_LIST":    ["Tag No", "Item No", "Sr. No.", "Sl. No."],
+      "DATASHEET":         ["Data Sheet", "Material Requisition", "Specification"],
+      "MANDATORY_SPARES":  ["Mandatory Spare", "Mandatory Parts"],
+      "OM_SPARES":         ["Operation and Maintenance", "O&M Spares", "Two Years"]
+    }
+  },
+  "matching": {
+    "fuzzy_high_threshold": 75,
+    "fuzzy_review_threshold": 60,
+    "dedup_similarity_threshold": 90
+  },
+  "llm": {
+    "model": "gemini-2.5-flash",
+    "api_key_env": "GEMINI_API_KEY"
+  },
+  "output": {
+    "base_path": "outputs/csv/",
+    "inputs_path": "inputs/pdfs/",
+    "upload_to_crm": false,
+    "notify_on_completion": false
+  },
+  "vendor": {
+    "reminder_sla_days": 2,
+    "validity_alert_days": 7
+  },
+  "logging": {
+    "log_dir": "logs/"
+  }
+}

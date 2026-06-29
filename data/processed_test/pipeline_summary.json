@@ -1,0 +1,40 @@
+{
+  "lead_no": "P260600002",
+  "rfq_ref": "",
+  "project": "FLOWMORE",
+  "customer": "TATA POWER",
+  "date_received": "",
+  "bom_rows_total": 4,
+  "bom_rows_applicable": 4,
+  "bom_rows_mandatory": 0,
+  "validation": {
+    "confidence_score": 100.0,
+    "missing_fields": [],
+    "warnings": [],
+    "is_valid": true
+  },
+  "output_files": {
+    "bom_csv": "data/processed_test\\BOM_P260600002_FLOWMORE_TATAPOWER.csv",
+    "spares_csv": "data/processed_test\\SPARES_SUMMARY_P260600002.csv",
+    "checklist_csv": "data/processed_test\\CHECKLIST_P260600002.csv",
+    "excel": "data/processed_test\\RMC_P260600002_FLOWMORE_TATAPOWER.xlsx",
+    "vendor_inquiry_csv": "data/processed_test\\VENDOR_INQUIRY_P260600002_FLOWMORE_TATAPOWER.csv",
+    "vendor_inquiry_xlsx": "data/processed_test\\VENDOR_INQUIRY_P260600002_FLOWMORE_TATAPOWER.xlsx",
+    "priced_bom_csv": ""
+  },
+  "vendor_email": {
+    "dry_run": true,
+    "note": "No vendor emails provided"
+  },
+  "missing_doc_alert": {
+    "status": "dry_run",
+    "missing": [
+      "P&ID Drawing",
+      "GA Drawing",
+      "Vendor List",
+      "Instrumentation Specification"
+    ],
+    "subject": "Document Request \u2014  / FLOWMORE \u2014 Lead: P260600002",
+    "body": "Dear Purchasing Team,\n\nThank you for your inquiry (Ref:  / FLOWMORE, Lead No: P260600002).\n\nTo proceed with the techno-commercial offer, we require the following document(s) which appear to be missing from the package:\n\n  \u2022 P&ID Drawing\n  \u2022 GA Drawing\n  \u2022 Vendor List\n  \u2022 Instrumentation Specification\n\nRequest you to kindly share the above at your earliest convenience so we may provide an accurate and timely quotation.\n\nRegards,\nEngineering Team\nCenlub Systems"
+  }
+}

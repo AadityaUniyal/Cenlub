@@ -1,0 +1,10 @@
+Level,Item No,Tag,Equipment/Component Name,Qty,Material / MOC,Unit Price,Source PDF
+Equipment,1,,Screw Pump,2 Nos,"Cast Iron Casing, Alloy Steel R","INR 75,000",bom_sheet.pdf
+Component,1.1,,  Casing,,Cast Iron,,
+Component,1.2,,  Rotors,,Alloy Steel,,
+Equipment,2,,Electric Motor,2 Nos,Cast Iron Frame,"INR 35,000",bom_sheet.pdf
+Equipment,3,,Shell & Tube Heat Exchanger,1 No,"Shell: CS, Tubes: Copper","INR 1,20,000",bom_sheet.pdf
+Component,3.1,,  Shell,,CS,,
+Component,3.2,,  Tubes,,Copper,,
+Equipment,4,,Lube Oil Reservoir,1 No,Stainless Steel SS304,"INR 2,50,000",bom_sheet.pdf
+Equipment,5,,Duplex Oil Filter,1 Set,Carbon Steel housing,"INR 80,000",bom_sheet.pdf

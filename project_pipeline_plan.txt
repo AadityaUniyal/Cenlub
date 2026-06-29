@@ -1,0 +1,537 @@
+================================================================================
+PROJECT PIPELINE PLAN — REVISED
+From: Incoming RFQ Email → Enriched BOM CSV (Cenlub Internal Format)
+Grounded in: Real sample documents (P26060840 / C-4758 / FLOWMORE / Triveni)
+================================================================================
+
+OVERVIEW
+--------
+This pipeline automates the full RFQ intake workflow at Cenlub Systems — from
+the moment an inquiry email lands in rfq@cenlub.com, through parsing the attached
+spares/LOS PDFs, filling the internal checklist, building the Bill of Materials,
+and producing a final enriched CSV ready for vendor pricing and proposal generation.
+
+The three real document types this pipeline handles are:
+
+  INPUT  A → RFQ Email  (e.g., C-4758 / FLOWMORE / LOS SPECIFICATION RELEASED)
+              Contains: sender details, project code, forwarded customer email,
+              list of attached PDFs (LOS Spec, Technical Part, Mandatory Spares,
+              O&M Spares List), and a request to "allocate lead no."
+
+  INPUT  B → Spares / O&M PDF  (e.g., "Two Years Normal Operation and
+              Maintenance Spares List" — B957-410-80-42-OM-5310 Rev. A)
+              Contains: categorized table (A/B/C/D) with Sl.No, Part Description,
+              Quantity Required, Remarks — 26 line items across Electrical Motor,
+              Gear Box, and Steam Turbine sections. Items flagged "Not applicable"
+              or "As considered for mandatory spares."
+
+  INPUT  C → LOS Specification PDFs (Technical Part, P&ID, GA Drawing, etc.)
+              Contains: system parameters — flow rate (LPM), pressure, oil grade,
+              temperature ranges, filtration level, MOC of heat exchanger, area
+              zone, control panel/junction box/transmitter requirements, etc.
+
+  OUTPUT → Enriched BOM CSV in Cenlub's internal Annexure-I format:
+              Sr.No | Cust.Part.No | Rev | Qty | Item | Technical Specification |
+              MOC | Make | Unit Price | Total Price | Delivery Time (Weeks)
+              — with internal checklist fields pre-filled and LOS parameters
+              extracted.
+
+
+================================================================================
+PHASE 0 — SETUP & SCHEMA DEFINITION
+================================================================================
+
+Goal: Define all schemas, folder structure, and Lead ID system before automation.
+
+Steps:
+  0.1  LEAD NUMBER SYSTEM
+       - Every incoming RFQ gets a unique Lead No. in format: P[YY][MM][NNNNN]
+         (e.g., P26060840 = Year 26, Month 06, Serial 00840).
+       - The pipeline auto-increments and assigns this on email receipt.
+
+  0.2  MASTER CSV SCHEMA (Cenlub Annexure-I format)
+       Columns in final output CSV:
+
+         Lead_No            | string   | e.g. P26060840
+         Customer_RFQ_Ref   | string   | e.g. C-4758
+         Project_Name       | string   | e.g. FLOWMORE / LOS
+         Customer_Name      | string   | e.g. Triveni Turbine Limited
+         Contact_Person     | string   | e.g. Madhavan Yohan
+         Contact_Email      | string   | madhavan.yohan@triveniturbines.com
+         Date_Received      | date     | e.g. 03-Jun-2026
+         Category_Code      | string   | A / B / C / D (from spares PDF)
+         Category_Label     | string   | Electrical Motor / Gear Box / Steam Turbine
+         Sl_No              | integer  | item serial within category
+         Cust_Part_No       | string   | from BOM (if provided)
+         Rev                | string   | revision number
+         Part_Description   | string   | full text from spares PDF
+         Plain_Description  | string   | LLM-generated 1–2 line plain summary
+         Quantity_Required  | integer  | from spares PDF
+         Unit               | string   | Set / No. / Assy etc.
+         Remarks            | string   | "Not applicable" / "Mandatory spares" etc.
+         Applicable_Flag    | boolean  | TRUE if applicable to TTL scope
+         MOC                | string   | Material of Construction (from spec)
+         Technical_Spec     | string   | extracted from LOS / Technical Part PDF
+         Make               | string   | blank → to be filled by vendor
+         Unit_Price         | decimal  | blank → to be filled after vendor quote
+         Total_Price        | decimal  | calculated: Qty × Unit Price
+         Delivery_Weeks     | integer  | blank → to be filled after vendor quote
+         Offer_Ref          | string   | vendor offer reference number
+         Validity_Date      | date     | vendor offer expiry date
+         Internal_Item_Code | string   | Cenlub internal code (e.g. L23, M6, I16)
+         Source_PDF         | string   | which attachment this item came from
+         Data_Complete_Flag | boolean  | FALSE if any required field is missing
+
+  0.3  INTERNAL CHECKLIST SCHEMA (from CS/DES/O/F/04 checklist)
+       Separate lightweight JSON to track document receipt status:
+
+         Lead_No, Date, Prepared_By, Approved_By
+         + 15 document checklist items (P&ID, GA Drawing, Customer TS for LOS,
+           Vendor List, Mech Spec, Elec Spec, Instrumentation Spec, PMS,
+           Other Docs, Control Narrative, Welding Spec, Painting Spec,
+           Packing Spec, Water Properties, Geological Conditions)
+         + 20 LOS parameter fields (Application, Industry, EPC, Consultant,
+           Project, Pressure at System Outlet, Pressure at Pump Outlet,
+           Flow Rate LPM, Oil Grade, Temp Oil In/Out, Temp Water In/Out,
+           MOC of Heat Exchanger, Filtration Micron, Transmitter Y/N,
+           Control Panel Y/N, Junction Box Y/N, LCS Y/N, Tank Y/N,
+           MOC of Reservoir, Area Zone)
+
+  0.4  FOLDER STRUCTURE
+         /inputs/emails/         → raw .eml or forwarded PDF email files
+         /inputs/pdfs/           → all attached PDFs per lead
+         /parsed/                → extracted JSON per lead
+         /checklists/            → filled checklist JSON per lead
+         /outputs/csv/           → final BOM CSVs
+         /outputs/reports/       → summary reports
+
+  0.5  CRM INTEGRATION
+       - SKIDCRM / Google Sheets as the live tracking sheet.
+       - Each Lead No. = one row in the master tracker.
+       - Pipeline writes status fields: Received / Parsed / BOM_Ready / Quoted.
+
+Deliverable: Schema docs, folder structure, Lead No. counter initialized.
+
+
+================================================================================
+PHASE 1 — EMAIL INTAKE & LEAD CREATION
+================================================================================
+
+Goal: Parse the incoming RFQ email (like the P26060840 / C-4758 sample), extract
+all structured metadata, auto-assign Lead No., and trigger downstream processing.
+
+Real example fields from the sample email:
+  - From:     rfq@cenlub.com (forwarded from Madhavan Yohan, Triveni Turbines)
+  - Date:     03 June 2026 14:50
+  - Subject:  INQUIRY / C-4758 / FLOWMORE / LOS SPECIFICATION RELEASED
+  - Body:     "Please allocate lead No" + forwarded customer email
+  - Attachments mentioned: LOS SPECIFICATION_C-4758_R0.pdf, TECHNICAL PART.pdf,
+                           7. Mandatory Spares list.pdf,
+                           8. Two Years Normal O&M Spares List.pdf
+
+Steps:
+  1.1  EMAIL LISTENER
+       - Monitor rfq@cenlub.com inbox via IMAP / Microsoft Graph API.
+       - Detect new flagged/unread emails with RFQ-pattern subjects.
+       - Trigger on keywords: INQUIRY / RFQ / QUOTATION / LOS / SPECIFICATION.
+
+  1.2  EMAIL METADATA EXTRACTION (LLM-assisted)
+       Extract and populate the following from subject + body + headers:
+
+         Field               → Extracted Value (from sample)
+         ──────────────────────────────────────────────────────
+         Customer_RFQ_Ref    → C-4758
+         Project_Tag         → FLOWMORE
+         Document_Type       → LOS SPECIFICATION
+         Revision            → R0
+         Customer_Company    → Triveni Turbine Limited
+         Customer_Contact    → Madhavan Yohan
+         Customer_Email      → madhavan.yohan@triveniturbines.com
+         Cc_List             → Amarjeet Rastogi, Tnk Swamy, Ganesh Adithya
+         Internal_Recipients → skg.answrs, ocs, pm, abhinay.mittal @cenlub.com
+         Date_Received       → 03-Jun-2026
+         Request_Action      → Allocate Lead No + Submit Techno-commercial offer
+
+  1.3  LEAD NUMBER ASSIGNMENT
+       - Auto-generate: P26060840 (based on year/month/sequence).
+       - Write Lead No. back into CRM and tag all downstream files with it.
+
+  1.4  ATTACHMENT INVENTORY
+       - List all PDF attachments mentioned in the email body.
+       - Download / save to /inputs/pdfs/P26060840/ folder.
+       - Classify each by type:
+           TYPE_LOS_SPEC     → LOS SPECIFICATION_C-4758_R0.pdf
+           TYPE_TECH_PART    → TECHNICAL PART.pdf
+           TYPE_MAND_SPARES  → 7. Mandatory Spares list.pdf
+           TYPE_OM_SPARES    → 8. Two Years Normal O&M Spares List.pdf
+
+  1.5  INTERNAL CHECKLIST INITIALIZATION
+       - Create blank checklist JSON (CS/DES/O/F/04 format) for this lead.
+       - Pre-fill: Lead_No, Date, Prepared_By (from login/config).
+       - Mark documents as "Received" where attachments are confirmed present.
+       - Leave LOS parameters blank — to be filled from PDF parsing (Phase 2).
+
+  1.6  CRM RECORD CREATION
+       - New row in master tracker: Lead No., Customer, Project, Date, Status=Received.
+       - Auto-notify assigned team member (Ashish Mon / pm@cenlub.com) to review.
+
+Deliverable: Lead JSON file with email metadata + attachment manifest + blank
+checklist. CRM row created with status "Received."
+
+
+================================================================================
+PHASE 2 — PDF PARSING & DOCUMENT SIMPLIFICATION
+================================================================================
+
+Goal: Parse all 4 PDF types for this lead and extract structured data.
+Each PDF type has a different parsing strategy.
+
+──────────────────────────────────────────────────────────────────
+2A. O&M SPARES LIST PDF  (primary BOM source)
+    Real sample: "Two Years Normal O&M Spares List — B957-410-80-42-OM-5310 Rev.A"
+──────────────────────────────────────────────────────────────────
+
+  Step 2A.1 — TABLE EXTRACTION
+    - Parse the structured table using pdfplumber (table detection mode).
+    - Columns to extract: Sl.No | Part Description | Quantity Required | Remarks
+    - Detect category header rows (A, B, C, D) and treat as section labels:
+        A → Centrifugal Pumps (horizontal)
+        B → Electrical Motor
+        C → Gear Box - General Purpose
+        D → Steam Turbine - General Purpose - API 611
+
+  Step 2A.2 — APPLICABILITY FILTERING
+    - Parse Remarks column for key flags:
+        "Not applicable to TTL scope" → set Applicable_Flag = FALSE
+        "Not applicable"              → set Applicable_Flag = FALSE
+        "As considered for mandatory spares" → link to mandatory spares list
+        (blank)                       → set Applicable_Flag = TRUE
+    - Items with Qty = 0 → flag as "Qty Zero — Confirm with customer"
+
+  Step 2A.3 — LLM PLAIN DESCRIPTION GENERATION
+    For each applicable item, send Part Description to Claude API and request:
+    "Write a 1–2 sentence plain-language description of what this spare part is,
+    what it does in a steam turbine lube oil system, and why it is stocked as
+    a 2-year maintenance spare. Be concise and non-technical."
+
+    Example input:  "Set of shaft seal assembly (DE+NDE) including sleeves under seals"
+    Example output: "A complete set of shaft sealing components for both ends of the
+                    turbine shaft, preventing oil leakage. Stocked as a maintenance
+                    spare since seals wear over 2 years of continuous operation."
+
+  Step 2A.4 — STRUCTURED JSON OUTPUT (one object per line item)
+    {
+      "lead_no": "P26060840",
+      "source_pdf": "8. Two Years Normal O&M Spares List.pdf",
+      "category_code": "D",
+      "category_label": "Steam Turbine - General Purpose - API 611",
+      "sl_no": 7,
+      "part_description": "Set of shaft seal assembly (DE+NDE) including sleeves under seals",
+      "plain_description": "Complete shaft sealing set for both turbine ends...",
+      "quantity_required": 1,
+      "remarks": "",
+      "applicable_flag": true,
+      "qty_zero_flag": false
+    }
+
+──────────────────────────────────────────────────────────────────
+2B. LOS SPECIFICATION PDF  (system parameters source)
+    Real sample: LOS SPECIFICATION_C-4758_R0.pdf
+──────────────────────────────────────────────────────────────────
+
+  Step 2B.1 — PARAMETER EXTRACTION
+    Extract the 20 LOS parameter fields into the checklist JSON:
+      - Flow Rate (LPM), Pressure at Pump Outlet, Pressure at System Outlet
+      - Oil Grade (e.g., ISO-VG-46), Temperature ranges (oil & water)
+      - Filtration Level (micron), Area Zone, MOC of Reservoir
+      - Control Panel / Junction Box / Transmitter / LCS / Tank (Y/N flags)
+      - MOC of Heat Exchanger (Shell & Tube / Plates)
+
+  Step 2B.2 — CHECKLIST POPULATION
+    - Update the checklist JSON: mark "Customer TS for LOS" = Received.
+    - Fill all LOS Parameter fields from extracted values.
+    - Flag any LOS parameter that could not be found as "MISSING — manual review."
+
+──────────────────────────────────────────────────────────────────
+2C. TECHNICAL PART PDF
+──────────────────────────────────────────────────────────────────
+
+  Step 2C.1 — SPEC EXTRACTION
+    - Extract technical specifications relevant to each BOM item:
+        MOC (Material of Construction), pressure ratings, temperature limits,
+        API standard references (e.g., API 611 for steam turbine).
+    - Match extracted specs to line items from 2A by keyword matching.
+    - Populate Technical_Spec column in the BOM JSON.
+
+──────────────────────────────────────────────────────────────────
+2D. MANDATORY SPARES LIST PDF
+──────────────────────────────────────────────────────────────────
+
+  Step 2D.1 — CROSS-REFERENCE
+    - Extract mandatory spares list items.
+    - For each, find the matching item in the O&M spares list (by description match).
+    - Set a "Mandatory_Flag = TRUE" on matched items in the BOM JSON.
+    - Items marked "As considered for mandatory spares" in Remarks are confirmed here.
+
+Deliverable: One consolidated BOM JSON file per lead with all items across all
+PDFs merged, deduplicated, described, and flagged.
+
+
+================================================================================
+PHASE 3 — BOM CONSOLIDATION & INTERNAL ITEM CODE MAPPING
+================================================================================
+
+Goal: Merge all parsed data into one unified BOM, assign internal Cenlub item
+codes, match to component categories (Mech/Elec/Instrument/Main), and prepare
+the vendor inquiry package.
+
+Steps:
+  3.1  MERGE & DEDUPLICATE
+       - Combine items from O&M Spares + Mandatory Spares lists.
+       - Identify items appearing in both → keep one row, mark Mandatory_Flag=TRUE.
+       - Total items for this lead: ~26 line items (from sample).
+
+  3.2  INTERNAL ITEM CODE ASSIGNMENT
+       - Map each item to Cenlub's internal code system used in Annexure-I BOM:
+           L-prefix → Lube oil line items (e.g., L23, L24, L39, L40...)
+           M-prefix → Motor / mechanical items (e.g., M6, M7, M8...)
+           I-prefix → Instrumentation items (e.g., I16, I17, I20, I21...)
+           E-prefix → Electrical items (e.g., E1, E2, E3)
+           P-prefix → Piping / skid assembly items (e.g., P1, P2, P3)
+       - Where a new item has no existing code, flag for manual code assignment.
+
+  3.3  ASSEMBLY GROUP ASSIGNMENT
+       Map each item to one of Cenlub's BOM assembly groups:
+         RESERVOIR ASSEMBLY
+         LUBE OIL ASSEMBLY — MOTOR PUMP ASSEMBLY
+         HEAT EXCHANGER ASSEMBLY
+         WATERLINE ASSEMBLY
+         DUPLEX FILTER ASSEMBLY
+         MOTOR PUMP ASSEMBLY (EMERGENCY OIL PUMP)
+         LUBE OIL DELIVERY HEADER
+         SKID ASSEMBLY
+
+  3.4  VENDOR INQUIRY PACKAGE GENERATION
+       - For each applicable item (Applicable_Flag = TRUE), generate a vendor
+         inquiry row with: Item Code, Description, Qty, Technical Spec, MOC.
+       - Auto-fill the vendor quote template (Annexure-I format) with blank
+         price/make/delivery fields ready for vendor to complete.
+       - Send inquiry to registered vendors via email with a shared form link.
+
+  3.5  AUTO-REMINDERS
+       - If vendor has not responded within the configured SLA:
+         send daily reminder via email / WhatsApp until quote received.
+
+Deliverable: Consolidated BOM JSON (all 26+ items), vendor inquiry package sent,
+internal item codes assigned, assembly groups tagged.
+
+
+================================================================================
+PHASE 4 — CSV GENERATION (Cenlub Annexure-I Format)
+================================================================================
+
+Goal: Convert the enriched BOM JSON into the final CSV output that mirrors
+Cenlub's internal Annexure-I Bill of Material format exactly.
+
+Steps:
+  4.1  HEADER BLOCK (one-time, top of CSV)
+       Write the lead-level header fields as the first rows:
+
+         LEAD NO.        : P26060840
+         P&I Drg. No.    : [from LOS Spec]
+         Revision No.    : R0
+         Revision Date   : [from LOS Spec]
+         Fluid           : ISO-VG-46 [from LOS Spec]
+         Circuit - 1     : LUBE OIL SYSTEM
+         Circuit - 2     : EMERGENCY OIL
+         Suction Line    : [from LOS Spec, e.g. 100 NB]
+         Customer        : Triveni Turbine Limited
+         RFQ Ref         : C-4758 / FLOWMORE
+         Date            : 03-Jun-2026
+         Prepared By     : ASHISH MON
+         Tag Numbers     : 410-PT-00-108 & 411-PT-00-109
+
+  4.2  ITEM ROWS (one row per BOM line item)
+       Columns in exact Cenlub Annexure-I order:
+
+         SR.NO | CUST.PART.NO | REV | QTY | ITEM (Description) |
+         TECHNICAL SPECIFICATION | MOC | MAKE | UNIT PRICE |
+         TOTAL PRICE | DELIVERY TIME (WEEKS)
+
+       Additional columns appended for internal use:
+         PLAIN_DESCRIPTION | CATEGORY_CODE | CATEGORY_LABEL |
+         APPLICABLE_FLAG | MANDATORY_FLAG | REMARKS |
+         OFFER_REF | VALIDITY_DATE | SOURCE_PDF | DATA_COMPLETE_FLAG
+
+  4.3  PRE-FILL LOGIC
+       - SR.NO: auto-incremented within each assembly group.
+       - QTY: from O&M spares PDF (Quantity Required column).
+       - ITEM: Part Description from spares PDF.
+       - TECHNICAL SPECIFICATION: from Technical Part PDF (Phase 2C).
+       - MOC: from LOS Spec or Technical Part PDF.
+       - MAKE / UNIT PRICE / TOTAL PRICE / DELIVERY: left blank for vendor fill.
+       - PLAIN_DESCRIPTION: LLM-generated (Phase 2A.3).
+       - APPLICABLE_FLAG: FALSE rows still written but highlighted for exclusion.
+
+  4.4  ITEMS WITH QTY = 0
+       - Include in CSV but flag column DATA_COMPLETE_FLAG = FALSE.
+       - Add note: "Qty = 0 in source document. Confirm with Triveni before quoting."
+
+  4.5  VALIDATION PASS
+       - Check: all applicable items have descriptions and quantities.
+       - Check: no duplicate Sl.No within a category.
+       - Check: LOS parameters are populated in header.
+       - Generate a validation summary: N items total / N applicable / N flagged.
+
+  4.6  FILE EXPORT
+       - File name:  BOM_P26060840_C4758_FLOWMORE_Triveni_03Jun2026.csv
+       - Encoding:   UTF-8 with BOM (for Excel compatibility).
+       - Saved to:   /outputs/csv/
+       - Also uploaded to CRM record for Lead No. P26060840.
+
+  4.7  SECOND OUTPUT: CUSTOMER-FACING SPARES SUMMARY CSV
+       - Stripped version with only: Sl.No, Category, Part Description,
+         Plain Description, Quantity, Remarks, Applicable (Y/N).
+       - No internal prices, codes, or vendor data.
+       - File name: SPARES_SUMMARY_P26060840_C4758.csv
+
+Deliverable: Two CSVs — internal Annexure-I BOM (with all pricing columns blank,
+ready for vendor fill) + customer-facing spares summary.
+
+
+================================================================================
+PHASE 5 — CHECKLIST COMPLETION & DOCUMENT STATUS TRACKING
+================================================================================
+
+Goal: Finalize the internal Cenlub enquiry checklist (CS/DES/O/F/04) so the
+team knows exactly what is in hand and what is still missing before quoting.
+
+Steps:
+  5.1  AUTO-FILL DOCUMENT STATUS
+       Based on what PDFs were received and parsed, auto-fill checklist:
+
+         Sr.No  Description                          Status (auto-detected)
+         ─────────────────────────────────────────────────────────────────
+         1      P&ID Availability                    [check if received]
+         2      GA Drawing                           [check if received]
+         3      Customer TS for LOS                  RECEIVED (LOS Spec PDF)
+         4      Vendor List Availability             [check if received]
+         5      Mechanical items Specification        RECEIVED (Technical Part)
+         6      Electrical items Specification        [check]
+         7      Instrumentation Specification         [check]
+         8      PMS (Piping material Specification)   [check]
+         9      Any other Documents                  RECEIVED (Spares Lists)
+         10     Control Narrative Availability        [check]
+         11–15  Welding/Painting/Packing/Water/Geo   [check]
+
+  5.2  LOS PARAMETER POPULATION
+       - Write all 20 extracted LOS parameters into checklist JSON.
+       - Any parameter not found in PDFs: flag as "NOT FOUND — manual entry needed."
+
+  5.3  MISSING DOCUMENT ALERT
+       - If any critical document (P&ID, Vendor List) is missing:
+         auto-generate an email to the customer contact (Madhavan Yohan)
+         requesting the missing items.
+
+  5.4  CHECKLIST PDF/CSV EXPORT
+       - Export completed checklist as a separate file:
+         CHECKLIST_P26060840_C4758_05Jun2026.csv
+       - Append to CRM record.
+
+Deliverable: Completed checklist CSV, LOS parameters filled, missing docs flagged.
+
+
+================================================================================
+PHASE 6 — VENDOR PRICING, PROPOSAL & POST-SALES
+================================================================================
+
+Goal: Once vendor prices are received, auto-populate the BOM CSV and generate
+the techno-commercial proposal requested by Triveni Turbines.
+
+Steps:
+  6.1  VENDOR PRICE INGESTION
+       - On vendor response (email/form), extract:
+           Unit Price, Make/Model, Offer Ref, Delivery Weeks, Validity Date.
+       - Match to BOM rows by item code or description.
+       - Auto-calculate Total Price = Qty × Unit Price.
+       - Populate Make, Unit Price, Total Price, Delivery Time in the CSV.
+
+  6.2  RMC FINALIZATION
+       - Internal team reviews filled BOM CSV for commercial completeness.
+       - RFQ-to-Proposal target: within 1 day.
+
+  6.3  PROPOSAL GENERATION
+       - Auto-populate Cenlub's proposal template with BOM data from CSV.
+       - Include: lead header, item-wise pricing, total RMC, delivery schedule.
+       - Share live CRM link with Triveni (Madhavan Yohan) for review.
+
+  6.4  REVISION HANDLING
+       - Customer change requests → update CSV → re-export proposal.
+
+  6.5  POST-SALES (Landmark 2)
+       - On PO receipt: create PO record linked to Lead No. P26060840.
+       - Vendor PO finalization data back-filled into the same CSV.
+       - Delivery tracking per line item until closure.
+
+Deliverable: Final priced BOM CSV + sent techno-commercial proposal to Triveni.
+
+
+================================================================================
+TECHNOLOGY STACK
+================================================================================
+
+  Email Listener     →  Python + Microsoft Graph API (Outlook / rfq@cenlub.com)
+                         or IMAP for Gmail-based inboxes
+  PDF Table Extract  →  pdfplumber (structured tables like the spares list)
+  PDF Text Extract   →  PyMuPDF (fitz) for LOS Spec and Technical Part PDFs
+  OCR (if needed)    →  Tesseract / AWS Textract for scanned pages
+  LLM Processing     →  Claude API (claude-sonnet-4-6) for:
+                           - Email metadata extraction
+                           - Plain description generation per item
+                           - Missing parameter detection
+                           - Checklist auto-fill from unstructured text
+  Data Processing    →  Python + pandas (merge, deduplicate, calculate totals)
+  CSV Export         →  pandas .to_csv() with utf-8-sig encoding (Excel-safe)
+  CRM Integration    →  SKIDCRM API / Google Sheets API
+  Notifications      →  SMTP + WhatsApp Business API (vendor reminders)
+  Storage            →  Local filesystem / Google Drive with folder per Lead No.
+
+
+================================================================================
+SUMMARY — WHAT EACH REAL DOCUMENT BECOMES
+================================================================================
+
+  EMAIL (C-4758 / FLOWMORE / Triveni)
+    → Lead No. P26060840 created in CRM
+    → Email metadata JSON (customer, contact, date, attachments list)
+    → Checklist initialized with document receipt status
+
+  O&M SPARES PDF (26 line items, 4 categories A/B/C/D)
+    → 26-row JSON with category, description, qty, remarks, applicable flag
+    → Each row gets an LLM plain description (1–2 sentences)
+    → Rows with "Not applicable" flagged and excluded from vendor inquiry
+
+  LOS SPECIFICATION PDF
+    → 20 LOS parameter fields extracted and written into checklist
+    → Fluid, flow rate, pressure, temperature, MOC, filtration populated in BOM header
+
+  TECHNICAL PART PDF
+    → Technical Specification column populated per BOM item
+    → MOC values mapped to relevant items
+
+  MANDATORY SPARES PDF
+    → Cross-referenced against O&M spares list
+    → Mandatory_Flag = TRUE added to matched items
+
+  FINAL OUTPUTS:
+    BOM_P26060840_C4758_FLOWMORE_Triveni_03Jun2026.csv
+      → Annexure-I format, 26+ rows, pre-filled except Make/Price/Delivery
+    SPARES_SUMMARY_P26060840_C4758.csv
+      → Customer-facing, descriptions + qty only
+    CHECKLIST_P26060840_C4758_05Jun2026.csv
+      → Internal document tracker + LOS parameters
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

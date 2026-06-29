@@ -1,0 +1,48 @@
+﻿CENLUB ENQUIRY CHECKLIST — CS/DES/O/F/04
+Lead No,P260600001
+Date,26-Jun-2026
+Prepared By,ASHISH MON
+Approved By,
+
+## DOCUMENT STATUS
+Sr.No,Document,Status
+1,P&ID Availability,MISSING
+2,GA Drawing,MISSING
+3,Customer TS for LOS,RECEIVED
+4,Vendor List Availability,MISSING
+5,Mechanical Items Specification,RECEIVED
+6,Electrical Items Specification,MISSING
+7,Instrumentation Specification,MISSING
+8,PMS (Piping Material Spec),MISSING
+9,Other Documents,RECEIVED
+10,Control Narrative,MISSING
+11,Welding Specification,MISSING
+12,Painting Specification,MISSING
+13,Packing Specification,MISSING
+14,Water Properties,MISSING
+15,Geological Conditions,MISSING
+
+## LOS PARAMETERS
+Parameter,Value
+Application,XX
+Industry,XX
+EPC,XX
+Consultant,XX
+Project,XX
+Pressure at System Outlet,XX
+Pressure at Pump Outlet,XX
+Flow Rate (LPM),XX
+Oil Grade,XX
+Temperature Oil In,XX
+Temperature Oil Out,XX
+Temperature Water In,XX
+Temperature Water Out,XX
+MOC Heat Exchanger,XX
+Filtration Micron,XX
+Transmitter (Y/N),XX
+Control Panel (Y/N),XX
+Junction Box (Y/N),XX
+LCS (Y/N),XX
+Tank (Y/N),XX
+MOC of Reservoir,XX
+Area Zone,XX

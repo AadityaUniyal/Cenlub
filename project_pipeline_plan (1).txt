@@ -1,0 +1,777 @@
+================================================================================
+PROJECT PIPELINE PLAN — v4 (FINAL)
+Engine: Email → Large PDF Parsing → OA Master Matching → BOM CSV
+================================================================================
+
+OVERVIEW
+--------
+This engine automates the full RFQ-to-BOM pipeline for any incoming client
+inquiry. It is designed to be completely generic — it works for any large PDF
+(100 pages, 1000 pages, any format), any client, any project, and any set
+of items requested. The only fixed anchor is the OA Master database, which is
+loaded once and used as the matching reference for all future PDFs.
+
+THE THREE PILLARS:
+
+  1. OA MASTER DATABASE (one-time load, lives in Neon PostgreSQL)
+     The master list of all standard Cenlub items — pumps, valves, instruments,
+     electrical, etc. — stored in a cloud database. Updated manually when new
+     item types are encountered. Every PDF is matched against this database.
+
+  2. LARGE PDF PARSING ENGINE (fully dynamic, no hardcoding)
+     Accepts any PDF — any size, any format, any client. Extracts all item
+     descriptions, tag numbers, quantities, and specs using a combination of
+     text extraction, table detection, zone classification, and LLM assistance.
+     The engine does not assume any fixed structure; it adapts to whatever the
+     PDF contains.
+
+  3. EMAIL-DRIVEN CONTEXT EXTRACTION
+     The incoming RFQ email tells the engine what the client wants — which items,
+     which tags, which project. This context drives what the engine looks for in
+     the PDFs and what columns appear in the final CSV output.
+
+
+================================================================================
+PHASE 0 — OA MASTER DATABASE SETUP (One-Time, Then Always Live)
+================================================================================
+
+Goal: Load the OA Master Excel file into the Neon PostgreSQL cloud database.
+This is the only hardcoded step in the entire pipeline — everything else is
+dynamic. Once loaded, this database is the permanent reference for all leads.
+
+DATABASE CONNECTION:
+  Host     : ep-curly-dust-at68muqf-pooler.c-9.us-east-1.aws.neon.tech
+  Database : neondb
+  User     : neondb_owner
+  SSL      : required + channel_binding=require
+  Full DSN : postgresql://neondb_owner:npg_bi0Xrogxu7Ps@ep-curly-dust-at68muqf-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+  Store the DSN in an environment variable: DATABASE_URL
+  Never hardcode credentials in source files. Load via: os.environ["DATABASE_URL"]
+
+TABLES TO CREATE (run once via schema.sql):
+
+  TABLE: oa_master_items
+    id              SERIAL PRIMARY KEY
+    sno             NUMERIC            -- item serial number from Excel (e.g. 1.0, 76.0)
+    item_name       TEXT NOT NULL      -- e.g. "Gear Pump", "Mechanical Seal"
+    category        TEXT NOT NULL      -- e.g. "Main Items", "Tank & Accessories"
+    item_code       TEXT               -- Cenlub internal code, populated over time
+    type_flag       TEXT               -- BN / FT / FTNC / NC / STOCK / BN STOCK / NA
+    sheet_source    TEXT               -- which Excel sheet this came from
+    created_at      TIMESTAMPTZ DEFAULT now()
+    updated_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: oa_master_synonyms
+    id              SERIAL PRIMARY KEY
+    oa_item_id      INTEGER REFERENCES oa_master_items(id)
+    synonym         TEXT NOT NULL      -- alternate name / keyword to match in PDFs
+    added_by        TEXT               -- "system" (auto-generated) or "manual"
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: leads
+    id              SERIAL PRIMARY KEY
+    lead_no         TEXT UNIQUE NOT NULL   -- e.g. P26060840
+    customer_rfq_ref TEXT                 -- e.g. C-4758
+    project_name    TEXT
+    customer_name   TEXT
+    contact_person  TEXT
+    contact_email   TEXT
+    date_received   DATE
+    status          TEXT DEFAULT 'received'  -- received/parsed/bom_ready/quoted
+    email_subject   TEXT
+    email_body      TEXT
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: lead_pdfs
+    id              SERIAL PRIMARY KEY
+    lead_id         INTEGER REFERENCES leads(id)
+    filename        TEXT
+    pdf_type        TEXT   -- LARGE_SPEC / SPARES_LIST / MANDATORY_SPARES / BOM / OTHER
+    page_count      INTEGER
+    file_path       TEXT
+    parse_status    TEXT DEFAULT 'pending'
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: extracted_items
+    id              SERIAL PRIMARY KEY
+    lead_id         INTEGER REFERENCES leads(id)
+    pdf_id          INTEGER REFERENCES lead_pdfs(id)
+    equipment_tag   TEXT               -- e.g. 411-PT-00-109
+    equipment_desc  TEXT               -- e.g. Steam Turbine Driven Pump
+    part_description TEXT NOT NULL    -- raw text from PDF
+    quantity_raw    TEXT               -- as it appears in PDF (e.g. "ONE (1)")
+    quantity_numeric INTEGER           -- normalized integer
+    unit            TEXT               -- Set / No. / Assy etc.
+    remarks         TEXT
+    technical_spec  JSONB              -- key-value pairs from datasheet
+    source_page     INTEGER
+    source_zone     TEXT               -- LINE_ITEM / DATASHEET / SPARES / OM_SPARES
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: matched_items
+    id              SERIAL PRIMARY KEY
+    extracted_item_id INTEGER REFERENCES extracted_items(id)
+    oa_item_id      INTEGER REFERENCES oa_master_items(id)  -- NULL if unmatched
+    match_confidence TEXT       -- HIGH / PROBABLE / LLM / UNMATCHED
+    match_method    TEXT        -- KEYWORD / FUZZY / LLM / NONE
+    match_score     NUMERIC     -- fuzzy score 0–100 (NULL for KEYWORD/LLM)
+    plain_description TEXT      -- LLM-generated plain English summary
+    is_mandatory    BOOLEAN DEFAULT false
+    is_applicable   BOOLEAN DEFAULT true
+    review_flag     BOOLEAN DEFAULT false  -- TRUE = needs human review
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: bom_output
+    id              SERIAL PRIMARY KEY
+    lead_id         INTEGER REFERENCES leads(id)
+    matched_item_id INTEGER REFERENCES matched_items(id)
+    sr_no           INTEGER
+    make            TEXT               -- filled by vendor
+    unit_price      NUMERIC            -- filled by vendor
+    total_price     NUMERIC            -- auto-calculated: qty × unit_price
+    delivery_weeks  INTEGER            -- filled by vendor
+    offer_ref       TEXT
+    validity_date   DATE
+    internal_item_code TEXT            -- Cenlub L/M/I/E/P code
+    data_complete   BOOLEAN DEFAULT false
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+  TABLE: oa_master_gaps
+    id              SERIAL PRIMARY KEY
+    part_description TEXT NOT NULL    -- unmatched item from PDF
+    frequency       INTEGER DEFAULT 1  -- how many times seen across all leads
+    suggested_name  TEXT               -- LLM suggestion for OA Master name
+    suggested_category TEXT
+    status          TEXT DEFAULT 'pending'  -- pending / added / rejected
+    created_at      TIMESTAMPTZ DEFAULT now()
+
+LOADING SCRIPT: load_oa_master.py
+  - Read the OA Master Excel file path from config (not hardcoded).
+  - Parse all sheets dynamically — detect category header rows by checking
+    if a row has only one non-empty cell in the item name column.
+  - Insert each item into oa_master_items.
+  - Auto-generate initial synonyms for each item using Claude API:
+      Prompt: "Generate 5–10 alternate names and abbreviations for this
+               industrial equipment item that might appear in a technical
+               PDF: '{item_name}'. Return as a JSON array of strings."
+  - Insert synonyms into oa_master_synonyms.
+  - Print: "Loaded N items, M synonyms into Neon database."
+  - This script is run once; re-running it checks for duplicates and skips them.
+
+SYNONYM MANAGEMENT:
+  - Synonyms are stored in the database (not a JSON file) so they can be
+    updated, added, or removed via a simple SQL UPDATE without any code change.
+  - When the gap report identifies new items (Phase 4), team adds synonyms
+    directly in the database for next time.
+  - Matching engine always fetches synonyms live from the DB at runtime.
+
+
+================================================================================
+PHASE 1 — EMAIL INTAKE & LEAD CREATION (Fully Dynamic)
+================================================================================
+
+Goal: Parse the incoming RFQ email to extract lead metadata and drive what
+the engine will look for in the attached PDFs. No fields are hardcoded —
+everything is extracted from the email content by the LLM.
+
+HOW IT WORKS:
+  The email is the configuration for this lead. The LLM reads the email
+  and decides: who sent it, what project it is, what they are asking for,
+  what attachments arrived, and what the urgency/action is. This context
+  is stored in the leads table and referenced throughout all downstream phases.
+
+Steps:
+  1.1  EMAIL LISTENER
+       - Connect to the designated inbox (rfq@cenlub.com) via Microsoft
+         Graph API or IMAP. Credentials loaded from environment variables:
+           EMAIL_CLIENT_ID, EMAIL_CLIENT_SECRET, EMAIL_TENANT_ID
+         or: IMAP_HOST, IMAP_USER, IMAP_PASS
+       - Poll for new unread emails (or use webhook/push notifications).
+       - Trigger the pipeline on each new email that matches RFQ patterns.
+       - Pattern detection: subject contains any of
+           ["INQUIRY", "RFQ", "QUOTATION", "LOS", "SPECIFICATION",
+            "TENDER", "ENQUIRY", "REQUEST FOR QUOTE"]
+         This list is configurable in settings.json (not hardcoded).
+
+  1.2  LEAD NUMBER ASSIGNMENT
+       - Query the leads table for the latest lead_no.
+       - Auto-increment: P[YY][MM][NNNNN]
+         (Year + Month + 5-digit sequence, e.g. P26060840)
+       - Insert new row into leads table with status = 'received'.
+
+  1.3  LLM-DRIVEN EMAIL PARSING
+       Send the full email text (subject + body + sender info) to Claude API.
+       Prompt instructs the LLM to extract and return a JSON object with:
+         {
+           "customer_name": "...",
+           "contact_person": "...",
+           "contact_email": "...",
+           "customer_rfq_ref": "...",
+           "project_name": "...",
+           "action_requested": "...",
+           "attachments_mentioned": ["file1.pdf", "file2.pdf", ...],
+           "items_requested": ["..."],     ← if any items named in email body
+           "urgency": "...",
+           "additional_context": "..."
+         }
+       The LLM extracts whatever is present. Missing fields default to null.
+       No field names are hardcoded as mandatory — the schema handles nulls.
+
+  1.4  ATTACHMENT HANDLING
+       - Save each PDF attachment to: /inputs/pdfs/{lead_no}/
+       - Classify each PDF dynamically using the LLM:
+           Send first 2 pages of text to Claude API with prompt:
+           "What type of document is this? Options: LARGE_SPEC (technical
+            specification or material requisition), SPARES_LIST (mandatory
+            or O&M spare parts list), BOM (bill of materials), OTHER.
+            Return one word."
+       - Store classification in lead_pdfs table.
+       - Queue all LARGE_SPEC and SPARES_LIST PDFs for Phase 2.
+
+  1.5  CRM UPDATE
+       - Write lead metadata to SKIDCRM / Google Sheets master tracker.
+       - Columns: Lead_No, Customer, Project, Date_Received, Status,
+                  No_of_PDFs, Assigned_To.
+       - Send internal notification to assigned team member.
+
+Deliverable: Lead row in Neon DB, PDFs saved and classified, CRM updated.
+
+
+================================================================================
+PHASE 2 — LARGE PDF PARSING ENGINE (Fully Generic, Any PDF)
+================================================================================
+
+Goal: Extract every item, tag number, quantity, and specification from any PDF
+— regardless of size, format, client, or structure. No assumptions about what
+the PDF looks like. The engine adapts to whatever it finds.
+
+This engine is the core of the project. It must handle:
+  - PDFs of 10 pages or 1000+ pages
+  - Structured tables (grid format)
+  - Unstructured prose mixed with specs
+  - Multi-column layouts
+  - Scanned pages (image-only, needs OCR)
+  - Mixed document types within one PDF (cover + specs + datasheets + spares)
+
+Steps:
+
+  2.1  PAGE-BY-PAGE TEXT EXTRACTION
+       For each PDF in the queue:
+       - Run pdfinfo to get page count.
+       - Run pdffonts to check if text layer exists:
+           → Fonts present: use pdfplumber for text + table extraction.
+           → No fonts (scanned): use Tesseract OCR page by page.
+       - Process in chunks of 50 pages to manage memory.
+       - For each page, extract:
+           raw_text      : full text content
+           tables        : list of tables detected by pdfplumber
+           page_number   : for traceability back to source
+       - Store raw extraction in memory (not persisted); only matched
+         results go to the database.
+
+  2.2  DYNAMIC ZONE CLASSIFICATION
+       For each page, classify what zone it belongs to. Zone detection
+       uses signal patterns — not hardcoded strings, but a configurable
+       list of signals in settings.json. Default signals:
+
+         ZONE → SIGNAL PATTERNS (all configurable)
+         ───────────────────────────────────────────────────────────────
+         LINE_ITEM_LIST  → table header contains "Tag No" or "Item No"
+                           or "Sr. No." with "Description" and "Quantity"
+         DATASHEET       → page header contains "Data Sheet" or
+                           "Material Requisition" or "Specification"
+         MANDATORY_SPARES → text contains "Mandatory Spare" or
+                            "Mandatory Parts" near a table
+         OM_SPARES       → text contains "Operation and Maintenance" or
+                           "O&M Spares" or "Two Years" near a table
+         GENERAL_TEXT    → none of the above patterns match
+
+       If no pattern matches, classify as GENERAL_TEXT and still run
+       a keyword scan against the OA Master synonyms.
+
+  2.3  STRUCTURED TABLE EXTRACTION
+       When a table is detected by pdfplumber on any zone:
+       - Normalize headers: lowercase, strip special characters.
+       - Detect column roles dynamically by matching header text to known
+         roles (configurable in settings.json):
+           "description" / "part" / "item" / "component" → DESCRIPTION column
+           "qty" / "quantity" / "no." / "nos" / "required" → QUANTITY column
+           "remark" / "note" / "comment" → REMARKS column
+           "tag" / "item no" / "sr no" / "sl" → ID column
+       - Extract each row as {id, description, quantity, remarks}.
+       - Store in memory as candidate items for OA Master matching.
+
+  2.4  TAG NUMBER EXTRACTION
+       Scan all text (structured or not) for equipment tag numbers.
+       Tag number pattern is dynamic — the engine learns the pattern
+       from the email context and first 10 pages of the PDF:
+       - LLM prompt on first 10 pages:
+           "What format are the equipment tag numbers in this document?
+            Give me a regex pattern that would match all of them."
+       - Use the LLM-generated regex to extract all tag numbers.
+       - Fall back to a generic pattern if LLM cannot determine:
+             [A-Z0-9]{2,6}-[A-Z]{2}-[A-Z]{2}-[0-9]{3}[- ]?[A-Z]?
+       - Group extracted items under their nearest tag number.
+
+  2.5  LLM CHUNK PROCESSING (for unstructured or ambiguous sections)
+       For any page in GENERAL_TEXT zone, or any page where table
+       extraction yielded zero rows but text is non-empty:
+       - Send the page text to Claude API with prompt:
+           "Extract all equipment items, spare parts, or components
+            mentioned in this text. For each, return:
+            {tag_no, description, quantity, unit, specs, remarks}.
+            If a field is not present, return null.
+            Return a JSON array. If nothing relevant, return []."
+       - Merge results with table-extracted items.
+       - Deduplicate by (tag_no + description).
+
+  2.6  TECHNICAL SPEC EXTRACTION
+       For DATASHEET zone pages:
+       - Run LLM extraction for all parameter-value pairs:
+           "Extract all technical parameters and their values from this
+            datasheet as a JSON object: {param_name: value, ...}"
+       - Store as JSONB in extracted_items.technical_spec column.
+       - These specs populate the TECHNICAL_SPEC column in the final CSV.
+
+  2.7  PERSIST EXTRACTED ITEMS
+       After processing all pages of a PDF:
+       - Insert all candidate items into extracted_items table.
+       - Update lead_pdfs.parse_status = 'complete'.
+       - Log: "PDF {filename}: N pages processed, M items extracted."
+
+
+================================================================================
+PHASE 3 — OA MASTER MATCHING ENGINE (3-Tier, No Hardcoding)
+================================================================================
+
+Goal: For every item extracted from the PDF, find the best match in the
+oa_master_items database. The matching engine fetches all OA Master items
+and synonyms live from the Neon DB at runtime — nothing is hardcoded.
+
+Steps:
+
+  3.1  LOAD MATCHING REFERENCE AT RUNTIME
+       At the start of each matching job:
+       - Query Neon DB: SELECT i.*, array_agg(s.synonym) as synonyms
+                        FROM oa_master_items i
+                        LEFT JOIN oa_master_synonyms s ON s.oa_item_id = i.id
+                        GROUP BY i.id
+       - Build an in-memory index: {item_id: {name, category, synonyms[]}}
+       - This means any new item or synonym added to the DB is immediately
+         available next time the engine runs, with zero code changes.
+
+  3.2  TIER 1 — KEYWORD / SYNONYM MATCH (HIGH confidence)
+       For each extracted item description:
+       - Normalize: lowercase, strip punctuation, collapse whitespace.
+       - Check if the normalized description contains any synonym for
+         any OA Master item.
+       - If match found: record {oa_item_id, confidence=HIGH, method=KEYWORD}.
+       - If multiple synonyms match different OA items: take the one with
+         the most specific (longest) synonym match.
+
+  3.3  TIER 2 — FUZZY MATCH (PROBABLE confidence)
+       If no keyword match:
+       - Run rapidfuzz.token_sort_ratio between the item description and
+         each OA Master item name (not synonym — name only).
+       - If best score ≥ 75: record {oa_item_id, confidence=PROBABLE,
+         method=FUZZY, match_score=score}.
+       - If best score ≥ 60 and < 75: record as PROBABLE but set
+         review_flag = TRUE (needs human confirmation).
+
+  3.4  TIER 3 — LLM CLASSIFICATION (LLM confidence)
+       If best fuzzy score < 60:
+       - Fetch all OA Master item names from DB (dynamic, not hardcoded list).
+       - Send to Claude API:
+           "You are classifying industrial equipment spare parts. Given
+            this part description: '{description}', which of the following
+            standard items does it best match? Items: {oa_item_names_list}.
+            Return the exact item name, or 'NO MATCH' if none applies.
+            Also explain your reasoning in one sentence."
+       - If LLM returns a valid item name: look up its ID, record
+         {oa_item_id, confidence=LLM, method=LLM}.
+       - If LLM returns 'NO MATCH': record {oa_item_id=NULL,
+         confidence=UNMATCHED, review_flag=TRUE}.
+
+  3.5  GAP TRACKING
+       For every UNMATCHED item:
+       - Check oa_master_gaps table: if description already exists,
+         increment frequency. If new, insert with suggested_name and
+         suggested_category from the LLM response.
+       - This builds a running list of items seen in real PDFs that
+         the OA Master does not yet cover.
+
+  3.6  PLAIN DESCRIPTION GENERATION
+       For every matched item (any confidence level):
+       - Send to Claude API:
+           "Write a 1–2 sentence plain-language description of what this
+            industrial spare part is and why it is needed. Use simple
+            language a non-engineer can understand.
+            Part: '{part_description}'. Context: '{equipment_desc}'."
+       - Store in matched_items.plain_description.
+
+  3.7  INSERT INTO matched_items
+       Insert one row per extracted item with all match results.
+       Link back to extracted_item_id and oa_item_id (or NULL).
+
+
+================================================================================
+PHASE 4 — CSV GENERATION (Dynamic — Driven by Email Context)
+================================================================================
+
+Goal: Produce the final BOM CSV files. The columns and content are driven
+by what the email asked for and what the PDFs contained. No column list is
+hardcoded — the engine generates whatever is relevant for this lead.
+
+Steps:
+
+  4.1  DETERMINE OUTPUT COLUMNS FROM EMAIL CONTEXT
+       At the start of CSV generation, the engine queries:
+       - What did the email ask for? (items_requested from Phase 1.3)
+       - What was found in the PDF? (all matched + unmatched items)
+       - What specs were extracted? (technical_spec JSONB keys)
+
+       The engine then builds the column list dynamically:
+       - ALWAYS include: SR_NO, EQUIPMENT_TAG, EQUIPMENT_DESC,
+           OA_SNO, OA_ITEM_NAME, OA_CATEGORY, PART_DESCRIPTION,
+           PLAIN_DESCRIPTION, QTY_REQUIRED, QTY_NUMERIC, UNIT, REMARKS,
+           APPLICABLE_FLAG, MANDATORY_FLAG, MAKE (blank), UNIT_PRICE (blank),
+           TOTAL_PRICE (blank), DELIVERY_WEEKS (blank), SOURCE_PAGE,
+           MATCH_CONFIDENCE, DATA_COMPLETE_FLAG
+       - ADD if present in this lead's extracted data:
+           EQUIPMENT_TAG_NO    → if tag numbers were found in the PDF
+           TECHNICAL_SPEC      → flattened key-value from JSONB
+           MOC                 → if Material of Construction was in specs
+           API_STANDARD        → if an API standard was referenced
+           DRIVE_TYPE          → if electric motor / steam turbine was mentioned
+           AREA_CLASSIFICATION → if hazardous area zone was in specs
+           OFFER_REF           → vendor offer reference (initially blank)
+           VALIDITY_DATE       → vendor offer expiry (initially blank)
+           INTERNAL_ITEM_CODE  → Cenlub code if known from OA Master
+       - The column set is written to the CSV header dynamically.
+       - Future leads with different PDF types will automatically get
+         different column sets without any code change.
+
+  4.2  DATA ASSEMBLY
+       Query the Neon DB to assemble each BOM row:
+         SELECT
+           mi.id, mi.plain_description, mi.match_confidence,
+           mi.is_mandatory, mi.is_applicable, mi.review_flag,
+           ei.equipment_tag, ei.equipment_desc, ei.part_description,
+           ei.quantity_raw, ei.quantity_numeric, ei.unit, ei.remarks,
+           ei.technical_spec, ei.source_page,
+           oi.sno, oi.item_name, oi.category, oi.item_code,
+           bo.make, bo.unit_price, bo.total_price, bo.delivery_weeks
+         FROM matched_items mi
+         JOIN extracted_items ei ON ei.id = mi.extracted_item_id
+         LEFT JOIN oa_master_items oi ON oi.id = mi.oa_item_id
+         LEFT JOIN bom_output bo ON bo.matched_item_id = mi.id
+         WHERE ei.lead_id = {lead_id}
+         ORDER BY ei.equipment_tag, oi.category, oi.sno, ei.id
+
+  4.3  QUANTITY NORMALIZATION
+       Convert quantity_raw text to quantity_numeric integer:
+       - "ONE (1)" → 1
+       - "THREE (3)" → 3
+       - "FOUR (4)" → 4
+       - "2 Sets" → 2
+       - "1 No." → 1
+       - Regex: extract first integer from the string.
+       - If no integer found: set to NULL, data_complete = FALSE.
+
+  4.4  TOTAL PRICE CALCULATION
+       total_price = quantity_numeric × unit_price
+       (Calculated at export time; NULL if either field is blank.)
+
+  4.5  CSV FILES EXPORTED (always four files per lead)
+
+       FILE 1: BOM_{lead_no}_{project}_{customer}_{date}.csv
+         → All items: matched + unmatched + review-flagged
+         → Full internal BOM with all columns
+         → Used by Cenlub team for review
+
+       FILE 2: BOM_{lead_no}_VENDOR_INQUIRY.csv
+         → Only HIGH + PROBABLE confidence matches (no UNMATCHED)
+         → Columns: SR_NO, PART_DESCRIPTION, PLAIN_DESCRIPTION,
+                    QTY_NUMERIC, UNIT, TECHNICAL_SPEC, MOC, MAKE (blank),
+                    UNIT_PRICE (blank), DELIVERY_WEEKS (blank)
+         → Sent to vendors for pricing
+
+       FILE 3: BOM_{lead_no}_UNMATCHED_REVIEW.csv
+         → Only items with confidence = UNMATCHED or review_flag = TRUE
+         → Team manually classifies these and adds to OA Master DB
+         → Columns: PART_DESCRIPTION, EQUIPMENT_TAG, QTY, SOURCE_PAGE,
+                    LLM_SUGGESTED_NAME, LLM_SUGGESTED_CATEGORY
+
+       FILE 4: OA_MASTER_GAP_REPORT_{date}.csv
+         → Aggregated across ALL leads processed to date
+         → Shows which item types are missing from OA Master
+         → Columns: PART_DESCRIPTION, FREQUENCY, SUGGESTED_NAME,
+                    SUGGESTED_CATEGORY, STATUS
+         → Team uses this to decide what to add to the OA Master DB
+
+  4.6  FILE NAMING
+       All file names are auto-generated from lead metadata:
+         {lead_no} → from leads table
+         {project} → project_name from leads table (sanitized, spaces→underscore)
+         {customer} → customer_name (sanitized)
+         {date} → date_received formatted as DDMMMYYYY
+       No file names are hardcoded.
+
+  4.7  EXPORT & UPLOAD
+       - Export all 4 CSVs to /outputs/csv/{lead_no}/
+       - Upload to CRM (SKIDCRM / Google Drive) linked to lead record.
+       - Update leads.status = 'bom_ready' in Neon DB.
+       - Send notification: "BOM ready for Lead {lead_no} — N items matched,
+         M items need review."
+
+
+================================================================================
+PHASE 5 — MULTI-PDF HANDLING (Parallel, Any Number of PDFs)
+================================================================================
+
+Goal: A single lead may have 2, 4, or 20 PDFs attached. The engine handles
+all of them in parallel and merges the results into one BOM.
+
+Steps:
+  5.1  PARALLEL WORKERS
+       - One worker process per PDF (Python multiprocessing.Pool).
+       - Each worker runs Phase 2 independently for its PDF.
+       - Worker writes extracted items directly to Neon DB with its pdf_id.
+       - No coordination needed between workers during extraction.
+
+  5.2  MERGE AFTER ALL WORKERS COMPLETE
+       - Wait for all workers (pool.join()).
+       - Run deduplication query in Neon DB:
+           Find rows in extracted_items for the same lead_id where
+           part_description similarity > 90% (using pg_trgm extension)
+           and equipment_tag is the same.
+           Keep one row, mark duplicates as is_duplicate = TRUE.
+
+  5.3  CROSS-PDF RECONCILIATION
+       For each equipment tag, check if it appears across multiple PDFs:
+       - If same tag has a LINE_ITEM entry in one PDF and a SPARES entry
+         in another: link them (equipment context from line item + spares
+         from spares PDF).
+       - If tag found in LINE_ITEM_LIST but has zero spares entries:
+         flag with note "Equipment listed — no spare parts found in PDFs."
+
+  5.4  UNIFIED BOM
+       Phase 4 is run once after all workers complete, against the full
+       merged dataset. The SOURCE_PDF column in the CSV shows which PDF
+       each row came from.
+
+
+================================================================================
+PHASE 6 — VENDOR INQUIRY, PRICING & PROPOSAL
+================================================================================
+
+Goal: Use the generated BOM CSV to drive the vendor inquiry and proposal
+process. This phase is triggered after team review of the BOM.
+
+Steps:
+  6.1  VENDOR INQUIRY PACKAGE
+       - Generate inquiry email with BOM_{lead_no}_VENDOR_INQUIRY.csv attached.
+       - Email sent to registered vendors for the relevant item categories.
+       - Vendor is given a shared form link (SKIDCRM / ANSWRS) to fill in:
+           Make, Model, Unit Price, Delivery Weeks, Offer Ref, Validity Date.
+       - Vendor can attach datasheets and supporting documents via the form.
+
+  6.2  AUTO-REMINDERS
+       - If no vendor response within configured SLA (e.g., 2 days):
+         send daily reminder via email + WhatsApp.
+       - SLA configurable in settings.json.
+       - Stop reminders when vendor submits quote or manual override.
+
+  6.3  PRICE INGESTION
+       - On vendor form submission, auto-populate bom_output table:
+           make, unit_price, total_price (qty × unit_price),
+           delivery_weeks, offer_ref, validity_date.
+       - Regenerate BOM_{lead_no}_FULL.csv with prices filled.
+
+  6.4  OFFER VALIDITY TRACKING
+       - Daily job checks bom_output.validity_date for all open leads.
+       - If validity within 7 days: alert the team.
+       - Option to request extension from vendor (auto-email).
+
+  6.5  PROPOSAL GENERATION
+       - Populate Cenlub proposal template from the priced BOM.
+       - Internal review: team checks RMC (Raw Material Cost).
+       - Share live CRM link with customer for review and edits.
+       - Target: RFQ-to-Proposal within 1 working day.
+
+  6.6  OCS ORDERING TRACKER UPDATE
+       For each BOM item, update the OCS Ordering Tracker columns in Neon DB:
+         inquiry_to_vendor → handover_of_docs → qtn_from_vendor →
+         comparative_sheet → negotiation → price_approval → loi_to_vendor →
+         technical_verification → po_to_vendor → vendor_acceptance →
+         drg_submission → customer_approval → mfg_clearance
+
+
+================================================================================
+SETTINGS & CONFIGURATION (settings.json — No Hardcoding in Code)
+================================================================================
+
+All runtime configuration lives in settings.json (or environment variables
+for secrets). The pipeline reads this file at startup. Changing behavior
+never requires a code change — only a settings change.
+
+  {
+    "database": {
+      "url_env_var": "DATABASE_URL"   ← DSN loaded from environment, never hardcoded
+    },
+    "email": {
+      "inbox": "rfq@cenlub.com",
+      "auth_method": "graph_api",      ← or "imap"
+      "credentials_env": {
+        "client_id": "EMAIL_CLIENT_ID",
+        "client_secret": "EMAIL_CLIENT_SECRET",
+        "tenant_id": "EMAIL_TENANT_ID"
+      },
+      "rfq_trigger_keywords": [
+        "INQUIRY", "RFQ", "QUOTATION", "LOS",
+        "SPECIFICATION", "TENDER", "ENQUIRY"
+      ]
+    },
+    "pdf_parsing": {
+      "chunk_size_pages": 50,
+      "ocr_fallback": true,
+      "zone_signals": {
+        "LINE_ITEM_LIST":    ["Tag No", "Item No", "Sr. No."],
+        "DATASHEET":         ["Data Sheet", "Material Requisition", "Specification"],
+        "MANDATORY_SPARES":  ["Mandatory Spare", "Mandatory Parts"],
+        "OM_SPARES":         ["Operation and Maintenance", "O&M Spares", "Two Years"]
+      }
+    },
+    "matching": {
+      "fuzzy_high_threshold": 75,
+      "fuzzy_review_threshold": 60,
+      "dedup_similarity_threshold": 90
+    },
+    "llm": {
+      "model": "claude-sonnet-4-6",
+      "max_tokens": 1000,
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "output": {
+      "base_path": "/outputs/csv/",
+      "upload_to_crm": true,
+      "notify_on_completion": true
+    },
+    "vendor": {
+      "reminder_sla_days": 2,
+      "validity_alert_days": 7
+    }
+  }
+
+
+================================================================================
+TECHNOLOGY STACK
+================================================================================
+
+  Language            →  Python 3.11+
+
+  Database            →  Neon PostgreSQL (cloud, always-on)
+                         pg_trgm extension for fuzzy dedup
+                         Connection: psycopg2 or asyncpg
+                         ORM: SQLAlchemy 2.0
+
+  OA Master Loader    →  openpyxl (read any Excel file, no MS Office needed)
+
+  PDF Text Extraction →  pdfplumber (text + table detection)
+                         PyMuPDF / pdftotext (fallback)
+                         Tesseract OCR (scanned pages)
+                         pdfinfo / pdffonts (pre-flight check)
+
+  Matching Engine     →  rapidfuzz (fuzzy string matching, token_sort_ratio)
+                         Python re module (compiled regex, loaded from config)
+
+  LLM               →   Claude API / claude-sonnet-4-6
+                         Used for: email parsing, zone classification,
+                         tag pattern detection, chunk extraction,
+                         Tier 3 matching, plain description generation,
+                         synonym generation, gap reporting
+
+  Data Processing     →  pandas (merge, deduplicate, sort, export CSV)
+
+  CSV Export          →  pandas .to_csv(encoding='utf-8-sig')
+                         (utf-8-sig = UTF-8 with BOM, Excel-compatible)
+
+  Multi-PDF Workers   →  Python multiprocessing.Pool
+
+  Email Listener      →  Microsoft Graph API (primary)
+                         imaplib (fallback)
+
+  CRM Integration     →  SKIDCRM REST API / Google Sheets API
+
+  Notifications       →  SMTP (email) + WhatsApp Business API
+
+  Config Management   →  settings.json + python-dotenv for secrets
+
+  Logging             →  Python logging → /logs/{lead_no}_{timestamp}.log
+
+
+================================================================================
+FOLDER STRUCTURE
+================================================================================
+
+  /project_root/
+    .env                          ← secrets only (DATABASE_URL, API keys)
+    settings.json                 ← all non-secret config (editable without code change)
+
+    /scripts/
+      schema.sql                  ← Neon DB table definitions (run once)
+      load_oa_master.py           ← Phase 0: load Excel → Neon DB (run once)
+      parse_email.py              ← Phase 1: email intake, lead creation
+      parse_pdf.py                ← Phase 2: large PDF parsing engine
+      match_items.py              ← Phase 3: OA Master matching (3-tier)
+      generate_csv.py             ← Phase 4: BOM CSV generation
+      multi_pdf.py                ← Phase 5: parallel multi-PDF orchestrator
+      vendor_inquiry.py           ← Phase 6: vendor package, reminders, pricing
+      run_pipeline.py             ← master runner: calls phases 1–6 in order
+
+    /inputs/
+      /emails/                    ← raw .eml files (or fetched via API)
+      /pdfs/{lead_no}/            ← PDFs saved per lead
+
+    /outputs/
+      /csv/{lead_no}/             ← all 4 CSV files per lead
+
+    /logs/                        ← one log file per lead run
+
+
+================================================================================
+DATA FLOW SUMMARY
+================================================================================
+
+  OA Master Excel (any version, any columns)
+          ↓ [load_oa_master.py — one time]
+  Neon PostgreSQL: oa_master_items + oa_master_synonyms (live, queryable)
+
+  RFQ Email (any sender, any project, any attachments)
+          ↓ [parse_email.py]
+  leads row created + PDFs saved + classified → Neon DB
+
+  PDFs (any size, any structure, any number)
+          ↓ [multi_pdf.py → parse_pdf.py workers, parallel]
+  extracted_items rows → Neon DB (tag nos, descriptions, qty, specs, page nos)
+
+  Extracted items vs OA Master DB (live fetch at runtime)
+          ↓ [match_items.py — 3-tier: keyword → fuzzy → LLM]
+  matched_items rows → Neon DB (with confidence, plain descriptions, gaps)
+
+  Matched items + email context → dynamic column selection
+          ↓ [generate_csv.py]
+  FILE 1: BOM_{lead}_{project}_{customer}_{date}.csv     (full internal BOM)
+  FILE 2: BOM_{lead}_VENDOR_INQUIRY.csv                  (vendor-ready, no prices)
+  FILE 3: BOM_{lead}_UNMATCHED_REVIEW.csv                (needs manual review)
+  FILE 4: OA_MASTER_GAP_REPORT_{date}.csv                (missing items to add)
+
+  Vendor quotes received → prices filled into Neon DB
+          ↓ [vendor_inquiry.py]
+  Proposal generated → sent to customer → OCS Tracker updated → Lead closed
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
